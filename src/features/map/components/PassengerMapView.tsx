@@ -2,10 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link } from 'react-router'
 import L from 'leaflet'
-import { useCurrentTime } from '../../../hooks/useCurrentTime'
 import { convexUrl } from '../../../lib/env'
 import {
-  formatElapsedSignalTime,
   getMinimumDistanceToRouteMeters,
   getOperationalStatusLabel,
 } from '../../../lib/trackingSignal'
@@ -179,13 +177,9 @@ function decorateVehiclesWithRouteMeta(
 
 function getDisplayedVehicles(
   vehicles: PassengerMapVehicleView[],
-  selectedRouteId: string | null,
+  _selectedRouteId: string | null,
   activeTransportType: TransportType,
 ) {
-  if (selectedRouteId) {
-    return vehicles.filter((vehicle) => vehicle.routeId === selectedRouteId)
-  }
-
   return vehicles.filter(
     (vehicle) =>
       vehicle.transportType === activeTransportType && vehicle.isVisibleInOverview,
@@ -194,13 +188,8 @@ function getDisplayedVehicles(
 
 function getDisplayedRoutes(
   routeGroups: ReturnType<typeof getRouteGroups>,
-  selectedRoute: BusRoute | null,
   activeTransportType: TransportType,
 ) {
-  if (selectedRoute) {
-    return [selectedRoute]
-  }
-
   return (
     routeGroups.find((group) => group.transportType === activeTransportType)?.routes ??
     []
@@ -413,10 +402,8 @@ function RoutePickerModal({
 
 function PassengerMapContent({
   snapshot,
-  currentTimeMs,
 }: {
   snapshot: PassengerMapSnapshot
-  currentTimeMs: number
 }) {
   const routes = snapshot.routes
   const routeGroups = useMemo(() => getRouteGroups(routes), [routes])
@@ -456,8 +443,8 @@ function PassengerMapContent({
       ? transportTypePreference
       : routeGroups[0]?.transportType ?? 'urbano')
   const displayedRoutes = useMemo(
-    () => getDisplayedRoutes(routeGroups, selectedRoute, activeTransportType),
-    [activeTransportType, routeGroups, selectedRoute],
+    () => getDisplayedRoutes(routeGroups, activeTransportType),
+    [activeTransportType, routeGroups],
   )
   const displayedVehicles = useMemo(
     () =>
@@ -504,9 +491,6 @@ function PassengerMapContent({
   const selectedVehicle =
     displayedVehicles.find((vehicle) => vehicle.id === selectedVehicleId) ?? null
   const selectedVehicleSummary = selectedVehicle ?? displayedVehicles[0] ?? null
-  const selectedVehicleSignalLabel = selectedVehicleSummary
-    ? formatElapsedSignalTime(selectedVehicleSummary.lastUpdate, currentTimeMs)
-    : null
   const selectedRouteDistanceMeters = selectedRoute
     ? routeDistanceById.get(selectedRoute.id) ?? null
     : null
@@ -569,6 +553,9 @@ function PassengerMapContent({
     const fitBoundsPoints: Array<[number, number]> = []
 
     displayedRoutes.forEach((route) => {
+      const isSelectedRoute = route.id === selectedRoute?.id
+      const isSecondaryRoute = Boolean(selectedRoute) && !isSelectedRoute
+
       route.segments.forEach((segment) => {
         const path = segment.map((point) => [point.lat, point.lng] as [number, number])
 
@@ -579,9 +566,9 @@ function PassengerMapContent({
         path.forEach((point) => fitBoundsPoints.push(point))
 
         L.polyline(path, {
-          color: route.color,
-          weight: selectedRoute ? 7 : 4,
-          opacity: selectedRoute ? 0.96 : 0.78,
+          color: isSecondaryRoute ? '#94a3b8' : route.color,
+          weight: selectedRoute ? (isSelectedRoute ? 7 : 4) : 4,
+          opacity: selectedRoute ? (isSelectedRoute ? 0.98 : 0.3) : 0.78,
         })
           .addTo(routeLayer)
           .bindPopup(route.name)
@@ -747,9 +734,29 @@ function PassengerMapContent({
                   <button
                     type="button"
                     onClick={() => setCenterOnUserRequestCount((value) => value + 1)}
-                    className="flex min-h-11 items-center justify-center rounded-full bg-white/92 px-3 text-xs font-semibold text-slate-700 shadow-[0_14px_28px_-24px_rgba(15,23,42,0.6)] backdrop-blur transition hover:text-slate-900"
+                    className="relative flex h-11 w-11 items-center justify-center rounded-full bg-white/96 text-transparent shadow-[0_14px_28px_-24px_rgba(15,23,42,0.6)] backdrop-blur transition"
+                    aria-label="Ir a mi ubicacion"
+                    title="Ir a mi ubicacion"
                   >
-                    Mi ubicacion
+                    ⌖
+                    <span className="absolute inset-0 flex items-center justify-center text-sky-700">
+                      <svg
+                        aria-hidden="true"
+                        viewBox="0 0 24 24"
+                        className="h-5 w-5"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <circle cx="12" cy="12" r="4" />
+                        <path d="M12 2v3" />
+                        <path d="M12 19v3" />
+                        <path d="M2 12h3" />
+                        <path d="M19 12h3" />
+                      </svg>
+                    </span>
                   </button>
                   <button
                     type="button"
@@ -789,9 +796,7 @@ function PassengerMapContent({
                         <span className="font-semibold text-slate-900">
                           {selectedVehicleSummary.unitNumber}
                         </span>
-                        {selectedVehicleSignalLabel ? (
-                          <span>{selectedVehicleSignalLabel}</span>
-                        ) : null}
+                        <span>{formatLastUpdate(selectedVehicleSummary.lastUpdate)}</span>
                         <span
                           className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${getSignalBadgeClass(
                             selectedVehicleSummary.operationalStatus,
@@ -981,8 +986,7 @@ export function PassengerMapView() {
 }
 
 function PassengerMapConnectedView() {
-  const currentTimeMs = useCurrentTime(30_000)
-  const snapshot = usePassengerMapSnapshot(currentTimeMs)
+  const snapshot = usePassengerMapSnapshot()
 
   if (snapshot === undefined) {
     return (
@@ -993,5 +997,5 @@ function PassengerMapConnectedView() {
     )
   }
 
-  return <PassengerMapContent snapshot={snapshot} currentTimeMs={currentTimeMs} />
+  return <PassengerMapContent snapshot={snapshot} />
 }
