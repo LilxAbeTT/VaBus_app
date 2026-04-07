@@ -10,10 +10,12 @@ const navigationItems = [
 export function AppLayout({ children }: PropsWithChildren) {
   const location = useLocation()
   const isHomePage = location.pathname === '/'
+  const isPassengerMapPage = location.pathname === '/passenger-map'
+  const hideShellChrome = isHomePage || isPassengerMapPage
 
   return (
     <div className="app-shell">
-      {!isHomePage ? (
+      {!hideShellChrome ? (
         <header className="panel mt-3 overflow-hidden sm:mt-4">
           <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-teal-500 via-cyan-500 to-amber-400" />
           <div className="flex flex-col gap-5 px-4 py-5 sm:px-6 sm:py-6 lg:flex-row lg:items-center lg:justify-between">
@@ -60,11 +62,19 @@ export function AppLayout({ children }: PropsWithChildren) {
         </header>
       ) : null}
 
-      <main className={isHomePage ? 'flex flex-1 items-center py-3 sm:py-6' : 'flex-1 py-5 sm:py-8'}>
+      <main
+        className={
+          isHomePage
+            ? 'flex flex-1 items-center py-3 sm:py-6'
+            : isPassengerMapPage
+              ? 'flex-1 py-3 sm:py-4'
+              : 'flex-1 py-5 sm:py-8'
+        }
+      >
         {children}
       </main>
 
-      {!isHomePage ? (
+      {!hideShellChrome ? (
         <footer className="px-1 pb-6 text-sm leading-6 text-slate-500 sm:px-2 sm:pb-8">
           Acceso publico para pasajeros, acceso operativo para conductores y
           administracion protegida por ruta directa.

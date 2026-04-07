@@ -25,12 +25,10 @@ export function HomePage() {
             <img
               src="/logo.png"
               alt="VaBus"
-              className="mx-auto h-24 w-24 object-contain sm:h-28 sm:w-28"
+              className="mx-auto h-48 w-48 object-contain sm:h-50 sm:w-50"
             />
             <p className="eyebrow mt-4">Movilidad urbana</p>
-            <h1 className="mt-3 font-display text-3xl text-slate-900 sm:text-5xl">
-              VaBus
-            </h1>
+          
             <p className="mx-auto mt-3 max-w-2xl text-sm leading-6 text-slate-600 sm:text-base">
               Consulta rutas activas desde el celular y deja el acceso del
               conductor como entrada operativa aparte.
