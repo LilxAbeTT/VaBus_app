@@ -313,3 +313,73 @@ export const addLocationUpdate = mutation({
     }
   },
 })
+
+export const changeAssignedRoute = mutation({
+  args: {
+    sessionToken: v.string(),
+    routeId: v.id('routes'),
+  },
+  handler: async ({ db }, { sessionToken, routeId }) => {
+    const { user: driver } = await requireAuthenticatedSession(
+      db,
+      sessionToken,
+      'driver',
+    )
+
+    const [route, currentService] = await Promise.all([
+      db.get(routeId),
+      getOpenServiceForDriver(db, driver._id),
+    ])
+
+    if (!route || route.status !== 'active') {
+      throw new ConvexError('La ruta seleccionada no esta disponible.')
+    }
+
+    if (driver.defaultRouteId === route._id && currentService?.routeId === route._id) {
+      return {
+        routeId: route._id,
+        routeName: route.name,
+        changedAt: new Date().toISOString(),
+      }
+    }
+
+    const changedAt = new Date().toISOString()
+
+    await db.patch(driver._id, {
+      defaultRouteId: route._id,
+    })
+
+    if (driver.defaultVehicleId) {
+      await db.patch(driver.defaultVehicleId, {
+        defaultRouteId: route._id,
+      })
+    }
+
+    if (currentService) {
+      await db.patch(currentService._id, {
+        routeId: route._id,
+        lastLocationUpdateAt: changedAt,
+      })
+
+      const nextReferencePosition = getRouteSegments(route)[0]?.[0] ?? {
+        lat: 23.058,
+        lng: -109.701,
+      }
+
+      await db.insert('locationUpdates', {
+        activeServiceId: currentService._id,
+        vehicleId: currentService.vehicleId,
+        routeId: route._id,
+        position: nextReferencePosition,
+        recordedAt: changedAt,
+        source: 'seed',
+      })
+    }
+
+    return {
+      routeId: route._id,
+      routeName: route.name,
+      changedAt,
+    }
+  },
+})

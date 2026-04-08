@@ -11,7 +11,8 @@ export function AppLayout({ children }: PropsWithChildren) {
   const location = useLocation()
   const isHomePage = location.pathname === '/'
   const isPassengerMapPage = location.pathname === '/passenger-map'
-  const hideShellChrome = isHomePage || isPassengerMapPage
+  const isDriverFlow = location.pathname.startsWith('/driver')
+  const hideShellChrome = isHomePage || isPassengerMapPage || isDriverFlow
 
   return (
     <div className="app-shell">
@@ -68,6 +69,8 @@ export function AppLayout({ children }: PropsWithChildren) {
             ? 'flex flex-1 items-center py-3 sm:py-6'
             : isPassengerMapPage
               ? 'flex-1 py-3 sm:py-4'
+              : isDriverFlow
+                ? 'flex-1 py-3 sm:py-4'
               : 'flex-1 py-5 sm:py-8'
         }
       >

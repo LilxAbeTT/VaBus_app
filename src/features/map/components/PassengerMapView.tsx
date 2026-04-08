@@ -103,6 +103,35 @@ function formatDistanceRange(distanceMeters: number) {
   return 'mas de 4 km'
 }
 
+function parseRouteDirection(direction: string) {
+  const normalizedDirection = direction.replace(/\s+/g, ' ').trim()
+  const startTimeMatch = normalizedDirection.match(
+    /Inicio:\s*(.+?)(?=Finaliza:|Frecuencia:|$)/i,
+  )
+  const endTimeMatch = normalizedDirection.match(
+    /Finaliza:\s*(.+?)(?=Frecuencia:|$)/i,
+  )
+  const frequencyMatch = normalizedDirection.match(/Frecuencia:\s*(.+)$/i)
+  const pathSummary = normalizedDirection
+    .replace(/^Trayecto:\s*/i, '')
+    .replace(/Inicio:\s*.+$/i, '')
+    .trim()
+    .replace(/[.,]\s*$/, '')
+
+  const stops = pathSummary
+    .split(/\s+-\s+|,\s*/)
+    .map((stop) => stop.trim())
+    .filter((stop, index, allStops) => stop.length > 0 && allStops.indexOf(stop) === index)
+
+  return {
+    summary: pathSummary,
+    stops,
+    startTime: startTimeMatch?.[1]?.trim() ?? null,
+    endTime: endTimeMatch?.[1]?.trim() ?? null,
+    frequency: frequencyMatch?.[1]?.trim() ?? null,
+  }
+}
+
 function getRouteDistanceTone(distanceMeters: number | null) {
   if (distanceMeters === null) return 'bg-slate-100 text-slate-600'
   if (distanceMeters <= 600) return 'bg-emerald-100 text-emerald-700'
@@ -211,6 +240,48 @@ function getVehicleStatsByRoute(vehicles: PassengerMapVehicleView[]) {
   return statsByRouteId
 }
 
+function getSortedRoutesByDistance(
+  routes: BusRoute[],
+  routeDistanceById: Map<string, number | null>,
+) {
+  return routes
+    .map((route) => ({
+      route,
+      distanceMeters: routeDistanceById.get(route.id) ?? null,
+    }))
+    .filter((entry) => entry.distanceMeters !== null)
+    .sort((left, right) => (left.distanceMeters ?? 0) - (right.distanceMeters ?? 0))
+}
+
+function getRouteBoundsPoints(routes: BusRoute[]) {
+  return routes.flatMap((route) =>
+    route.segments.flatMap((segment) =>
+      segment.map((point) => [point.lat, point.lng] as [number, number]),
+    ),
+  )
+}
+
+function LocationTargetIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-5 w-5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v3" />
+      <path d="M12 19v3" />
+      <path d="M2 12h3" />
+      <path d="M19 12h3" />
+    </svg>
+  )
+}
+
 function ModalPortal({ children }: { children: React.ReactNode }) {
   if (typeof document === 'undefined') return null
   return createPortal(children, document.body)
@@ -275,6 +346,111 @@ function InfoModal({
             <p>Usa Rutas para elegir rapidamente una ruta y enfocarla.</p>
             <p>Usa Mi ubicacion para centrar el mapa en tu posicion actual.</p>
             <p>Toca una unidad para ver su estado y la hora de su ultima senal.</p>
+          </div>
+        </div>
+      </div>
+    </ModalPortal>
+  )
+}
+
+function RouteInfoModal({
+  route,
+  onClose,
+}: {
+  route: BusRoute
+  onClose: () => void
+}) {
+  const routeDetails = parseRouteDirection(route.direction)
+
+  return (
+    <ModalPortal>
+      <div
+        className="fixed inset-0 z-[1400] flex items-end justify-center bg-slate-950/35 p-4 backdrop-blur-[2px] sm:items-center"
+        onClick={onClose}
+      >
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Informacion de ${route.name}`}
+          className="panel w-full max-w-md px-5 py-5"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="eyebrow">Informacion de ruta</p>
+              <h2 className="mt-2 font-display text-2xl text-slate-900">
+                {route.name}
+              </h2>
+              <p className="mt-2 text-sm text-slate-600">
+                {getTransportTypeLabel(route.transportType)}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
+              aria-label="Cerrar informacion de ruta"
+            >
+              X
+            </button>
+          </div>
+
+          <div className="mt-4 rounded-[1.2rem] border border-slate-200 bg-slate-50 px-4 py-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-teal-700">
+              Trayecto
+            </p>
+            <p className="mt-2 text-sm leading-6 text-slate-700">
+              {routeDetails.summary}
+            </p>
+          </div>
+
+          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            <div className="rounded-[1.1rem] border border-slate-200 bg-white px-3 py-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                Inicio
+              </p>
+              <p className="mt-2 text-sm font-semibold text-slate-900">
+                {routeDetails.startTime ?? 'No disponible'}
+              </p>
+            </div>
+            <div className="rounded-[1.1rem] border border-slate-200 bg-white px-3 py-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                Finaliza
+              </p>
+              <p className="mt-2 text-sm font-semibold text-slate-900">
+                {routeDetails.endTime ?? 'No disponible'}
+              </p>
+            </div>
+            <div className="rounded-[1.1rem] border border-slate-200 bg-white px-3 py-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                Frecuencia
+              </p>
+              <p className="mt-2 text-sm font-semibold text-slate-900">
+                {routeDetails.frequency ?? 'No disponible'}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-teal-700">
+              Colonias y puntos clave
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {routeDetails.stops.length > 0 ? (
+                routeDetails.stops.map((stop) => (
+                  <span
+                    key={stop}
+                    className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700"
+                  >
+                    {stop}
+                  </span>
+                ))
+              ) : (
+                <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-500">
+                  No hay detalle adicional disponible.
+                </span>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -415,10 +591,12 @@ function PassengerMapContent({
   } = usePassengerRouteSelection(routes)
   const selectedRoute =
     routes.find((route) => route.id === selectedRouteId) ?? null
-  const [transportTypePreference, setTransportTypePreference] =
+  const [routeCarouselTransportType, setRouteCarouselTransportType] =
     useState<TransportType>(routeGroups[0]?.transportType ?? 'urbano')
+  const [hasTransportTypeFilter, setHasTransportTypeFilter] = useState(false)
   const [isRoutePickerOpen, setRoutePickerOpen] = useState(false)
   const [isInfoOpen, setInfoOpen] = useState(false)
+  const [routeInfoRouteId, setRouteInfoRouteId] = useState<string | null>(null)
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null)
   const [centerOnUserRequestCount, setCenterOnUserRequestCount] = useState(0)
   const {
@@ -437,11 +615,14 @@ function PassengerMapContent({
     () => getVehicleStatsByRoute(vehiclesWithRouteMeta),
     [vehiclesWithRouteMeta],
   )
+  const resolvedRouteCarouselTransportType = routeGroups.some(
+    (group) => group.transportType === routeCarouselTransportType,
+  )
+    ? routeCarouselTransportType
+    : routeGroups[0]?.transportType ?? 'urbano'
   const activeTransportType =
     selectedRoute?.transportType ??
-    (routeGroups.some((group) => group.transportType === transportTypePreference)
-      ? transportTypePreference
-      : routeGroups[0]?.transportType ?? 'urbano')
+    resolvedRouteCarouselTransportType
   const displayedRoutes = useMemo(
     () => getDisplayedRoutes(routeGroups, activeTransportType),
     [activeTransportType, routeGroups],
@@ -469,31 +650,48 @@ function PassengerMapContent({
 
     return distances
   }, [routes, userPosition])
+  const sortedRoutesByDistance = useMemo(
+    () => getSortedRoutesByDistance(routes, routeDistanceById),
+    [routeDistanceById, routes],
+  )
   const activeRouteGroup =
     routeGroups.find((group) => group.transportType === activeTransportType) ??
     routeGroups[0] ??
     null
-  const sortedActiveRoutesByDistance = useMemo(() => {
-    return (activeRouteGroup?.routes ?? [])
-      .map((route) => ({
-        route,
-        distanceMeters: routeDistanceById.get(route.id) ?? null,
-      }))
-      .filter((entry) => entry.distanceMeters !== null)
-      .sort((left, right) => (left.distanceMeters ?? 0) - (right.distanceMeters ?? 0))
-  }, [activeRouteGroup?.routes, routeDistanceById])
-  const nearestActiveRoute = sortedActiveRoutesByDistance[0] ?? null
+  const filteredRoutesByDistance = useMemo(() => {
+    if (!hasTransportTypeFilter) {
+      return []
+    }
+
+    return sortedRoutesByDistance.filter(
+      (entry) => entry.route.transportType === activeTransportType,
+    )
+  }, [activeTransportType, hasTransportTypeFilter, sortedRoutesByDistance])
+  const recommendedRoute =
+    (hasTransportTypeFilter
+      ? filteredRoutesByDistance[0]
+      : sortedRoutesByDistance[0]) ?? null
   const locationStatusCopy = getLocationStatusCopy({
     permissionState,
     isRequestingPermission,
     errorMessage: userLocationError,
   })
+  const selectedRouteVehicles = useMemo(
+    () =>
+      selectedRoute
+        ? displayedVehicles.filter((vehicle) => vehicle.routeId === selectedRoute.id)
+        : displayedVehicles,
+    [displayedVehicles, selectedRoute],
+  )
   const selectedVehicle =
     displayedVehicles.find((vehicle) => vehicle.id === selectedVehicleId) ?? null
-  const selectedVehicleSummary = selectedVehicle ?? displayedVehicles[0] ?? null
+  const selectedVehicleSummary =
+    selectedVehicle ?? selectedRouteVehicles[0] ?? displayedVehicles[0] ?? null
   const selectedRouteDistanceMeters = selectedRoute
     ? routeDistanceById.get(selectedRoute.id) ?? null
     : null
+  const routeInfoRoute =
+    routes.find((route) => route.id === routeInfoRouteId) ?? null
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<L.Map | null>(null)
@@ -502,6 +700,18 @@ function PassengerMapContent({
   const userLayerRef = useRef<L.LayerGroup | null>(null)
   const didFitInitialViewRef = useRef(false)
   const lastFittedViewKeyRef = useRef<string | null>(null)
+
+  function focusRoute(routeId: string) {
+    const route = routes.find((currentRoute) => currentRoute.id === routeId)
+
+    if (!route) {
+      return
+    }
+
+    setRouteCarouselTransportType(route.transportType)
+    setSelectedVehicleId(null)
+    setSelectedRouteId(route.id)
+  }
 
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) {
@@ -550,7 +760,9 @@ function PassengerMapContent({
     vehicleLayer.clearLayers()
     userLayer.clearLayers()
 
-    const fitBoundsPoints: Array<[number, number]> = []
+    const routeBoundsPoints = getRouteBoundsPoints(
+      selectedRoute ? [selectedRoute] : displayedRoutes,
+    )
 
     displayedRoutes.forEach((route) => {
       const isSelectedRoute = route.id === selectedRoute?.id
@@ -562,8 +774,6 @@ function PassengerMapContent({
         if (path.length === 0) {
           return
         }
-
-        path.forEach((point) => fitBoundsPoints.push(point))
 
         L.polyline(path, {
           color: isSecondaryRoute ? '#94a3b8' : route.color,
@@ -583,8 +793,6 @@ function PassengerMapContent({
       const marker = L.circleMarker(markerPosition, {
         ...getMarkerStyle(vehicle.operationalStatus),
       })
-
-      fitBoundsPoints.push(markerPosition)
 
       marker
         .addTo(vehicleLayer)
@@ -626,8 +834,12 @@ function PassengerMapContent({
     const shouldFitView =
       !didFitInitialViewRef.current || lastFittedViewKeyRef.current !== viewKey
 
-    if (shouldFitView && fitBoundsPoints.length > 0) {
-      map.fitBounds(L.latLngBounds(fitBoundsPoints).pad(0.15))
+    if (shouldFitView && routeBoundsPoints.length > 0) {
+      map.fitBounds(L.latLngBounds(routeBoundsPoints), {
+        paddingTopLeft: [24, 72],
+        paddingBottomRight: [24, selectedRoute || selectedVehicleSummary ? 112 : 32],
+        maxZoom: selectedRoute ? 14.75 : 13.6,
+      })
       didFitInitialViewRef.current = true
       lastFittedViewKeyRef.current = viewKey
       return
@@ -644,6 +856,7 @@ function PassengerMapContent({
     displayedRoutes,
     displayedVehicles,
     selectedRoute,
+    selectedVehicleSummary,
     selectedVehicleId,
     userPosition,
   ])
@@ -678,35 +891,53 @@ function PassengerMapContent({
     <>
       <section className="space-y-3 sm:space-y-4">
         <header className="panel px-3 py-3 sm:px-4">
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center justify-between gap-3">
             <Link
               to="/"
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white transition hover:border-teal-300"
+              className="flex items-center justify-center rounded-full border border-slate-200 bg-white px-2 py-1 transition hover:border-teal-300"
               aria-label="Volver al inicio"
             >
               <img
                 src="/logo.png"
                 alt="VaBus"
-                className="h-7 w-7 object-contain"
+                className="h-12 w-14 object-contain"
               />
             </Link>
 
-            <button
-              type="button"
-              onClick={() => setRoutePickerOpen(true)}
-              className="flex min-h-11 flex-1 items-center justify-center rounded-full bg-slate-900 px-4 text-sm font-semibold text-white transition hover:bg-teal-700"
-            >
-              Rutas
-            </button>
-
-            <Link
-              to="/"
-              className="flex min-h-11 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:border-teal-300 hover:text-teal-700"
-            >
-              Regresar
-            </Link>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setRoutePickerOpen(true)}
+                className="flex min-h-11 items-center justify-center rounded-full bg-slate-900 px-4 text-sm font-semibold text-white transition hover:bg-teal-700"
+              >
+                Rutas
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (recommendedRoute) {
+                    focusRoute(recommendedRoute.route.id)
+                  }
+                }}
+                disabled={!recommendedRoute}
+                className="flex min-h-11 items-center justify-center gap-2 rounded-full border border-amber-300 bg-amber-50 px-4 text-sm font-semibold text-amber-900 transition hover:border-amber-400 hover:bg-amber-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
+              >
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75" />
+                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-amber-500" />
+                </span>
+                Cerca
+              </button>
+              <Link
+                to="/"
+                className="flex min-h-11 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:border-teal-300 hover:text-teal-700"
+              >
+                Regresar
+              </Link>
+            </div>
           </div>
         </header>
+
 
         <section className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_320px] xl:items-start">
           <article className="panel overflow-hidden">
@@ -734,28 +965,13 @@ function PassengerMapContent({
                   <button
                     type="button"
                     onClick={() => setCenterOnUserRequestCount((value) => value + 1)}
-                    className="relative flex h-11 w-11 items-center justify-center rounded-full bg-white/96 text-transparent shadow-[0_14px_28px_-24px_rgba(15,23,42,0.6)] backdrop-blur transition"
+                    className="relative flex h-11 w-11 items-center justify-center rounded-xl border border-sky-200 bg-white text-transparent shadow-[0_14px_28px_-24px_rgba(15,23,42,0.6)] backdrop-blur transition hover:border-sky-300"
                     aria-label="Ir a mi ubicacion"
                     title="Ir a mi ubicacion"
                   >
                     ⌖
                     <span className="absolute inset-0 flex items-center justify-center text-sky-700">
-                      <svg
-                        aria-hidden="true"
-                        viewBox="0 0 24 24"
-                        className="h-5 w-5"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <circle cx="12" cy="12" r="4" />
-                        <path d="M12 2v3" />
-                        <path d="M12 19v3" />
-                        <path d="M2 12h3" />
-                        <path d="M19 12h3" />
-                      </svg>
+                      <LocationTargetIcon />
                     </span>
                   </button>
                   <button
@@ -815,27 +1031,73 @@ function PassengerMapContent({
           </article>
 
           <section className="panel overflow-hidden px-3 py-3 sm:px-4">
-            <div className="rounded-[1.25rem] border border-slate-200 bg-slate-50/70 px-4 py-3">
-              <p className="text-sm font-semibold text-slate-900">
-                {nearestActiveRoute && permissionState === 'granted'
-                  ? nearestActiveRoute.distanceMeters !== null &&
-                    nearestActiveRoute.distanceMeters <= 600
-                    ? `${nearestActiveRoute.route.name} esta cerca de ti`
-                    : `Ruta mas cercana: ${nearestActiveRoute.route.name}`
-                  : locationStatusCopy.title}
-              </p>
-              <p className="mt-1 text-sm leading-6 text-slate-600">
-                {nearestActiveRoute && permissionState === 'granted'
-                  ? nearestActiveRoute.distanceMeters !== null
-                    ? `Aproximadamente ${formatDistanceRange(nearestActiveRoute.distanceMeters)} desde tu ubicacion.`
+            <div className="overflow-hidden rounded-[1.4rem] border border-teal-200 bg-[radial-gradient(circle_at_top_left,_rgba(45,212,191,0.18),_transparent_48%),radial-gradient(circle_at_top_right,_rgba(251,191,36,0.16),_transparent_42%),linear-gradient(135deg,_rgba(255,255,255,0.98),_rgba(240,249,255,0.94))] px-4 py-4 shadow-[0_24px_45px_-32px_rgba(15,23,42,0.45)]">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-teal-700">
+                    {hasTransportTypeFilter
+                      ? `Ruta mas cercana ${getTransportTypeLabel(activeTransportType).toLowerCase()}`
+                      : 'Ruta recomendada cerca de ti'}
+                  </p>
+                  <p className="mt-2 font-display text-2xl text-slate-900">
+                    {recommendedRoute && permissionState === 'granted'
+                      ? recommendedRoute.route.name
+                      : locationStatusCopy.title}
+                  </p>
+                </div>
+                {recommendedRoute && permissionState === 'granted' ? (
+                  <span className="rounded-full border border-white/80 bg-white/80 px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm">
+                    {getTransportTypeLabel(recommendedRoute.route.transportType)}
+                  </span>
+                ) : null}
+              </div>
+
+              <p className="mt-3 text-sm leading-6 text-slate-600">
+                {recommendedRoute && permissionState === 'granted'
+                  ? recommendedRoute.distanceMeters !== null
+                    ? recommendedRoute.distanceMeters <= 600
+                      ? 'Esta ruta pasa muy cerca de tu ubicacion actual.'
+                      : `Aproximadamente ${formatDistanceRange(recommendedRoute.distanceMeters)} desde tu ubicacion.`
                     : locationStatusCopy.description
                   : locationStatusCopy.description}
               </p>
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                {recommendedRoute &&
+                recommendedRoute.distanceMeters !== null &&
+                permissionState === 'granted' ? (
+                  <span
+                    className={`rounded-full px-3 py-1.5 text-xs font-semibold ${getRouteDistanceTone(
+                      recommendedRoute.distanceMeters,
+                    )}`}
+                  >
+                    {recommendedRoute.distanceMeters <= 600
+                      ? 'Muy cerca de ti'
+                      : formatDistanceRange(recommendedRoute.distanceMeters)}
+                  </span>
+                ) : null}
+                {recommendedRoute && permissionState === 'granted' ? (
+                  <span className="rounded-full bg-white/85 px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm">
+                    Toca para enfocarla en el mapa
+                  </span>
+                ) : null}
+              </div>
+
+              {recommendedRoute && permissionState === 'granted' ? (
+                <button
+                  type="button"
+                  onClick={() => focusRoute(recommendedRoute.route.id)}
+                  className="mt-4 inline-flex min-h-11 items-center justify-center rounded-full bg-slate-900 px-5 text-sm font-semibold text-white transition hover:bg-teal-700"
+                >
+                  Ver esta ruta
+                </button>
+              ) : null}
+
               {permissionState !== 'granted' && permissionState !== 'unsupported' ? (
                 <button
                   type="button"
                   onClick={requestPermission}
-                  className="mt-3 rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-teal-700"
+                  className="mt-4 rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-teal-700"
                 >
                   Activar ubicacion
                 </button>
@@ -849,7 +1111,8 @@ function PassengerMapContent({
                     key={group.transportType}
                     type="button"
                     onClick={() => {
-                      setTransportTypePreference(group.transportType)
+                      setRouteCarouselTransportType(group.transportType)
+                      setHasTransportTypeFilter(true)
                       clearSelectedRoute()
                       setSelectedVehicleId(null)
                     }}
@@ -868,9 +1131,10 @@ function PassengerMapContent({
                 type="button"
                 onClick={() => {
                   clearSelectedRoute()
+                  setHasTransportTypeFilter(false)
                   setSelectedVehicleId(null)
                 }}
-                disabled={!selectedRoute}
+                disabled={!selectedRoute && !hasTransportTypeFilter}
                 className="text-sm font-semibold text-slate-500 transition hover:text-slate-900 disabled:cursor-not-allowed disabled:text-slate-300"
               >
                 General
@@ -887,33 +1151,46 @@ function PassengerMapContent({
                 const distanceMeters = routeDistanceById.get(route.id) ?? null
 
                 return (
-                  <button
+                  <article
                     key={route.id}
-                    type="button"
-                    onClick={() => {
-                      setSelectedVehicleId(null)
-
-                      if (isSelected) {
-                        clearSelectedRoute()
-                        return
-                      }
-
-                      setSelectedRouteId(route.id)
-                    }}
                     className={`min-w-[180px] snap-start rounded-[1.35rem] border bg-white px-4 py-4 text-left shadow-sm transition xl:min-w-0 ${
                       isSelected
                         ? 'border-slate-900 shadow-[0_18px_30px_-24px_rgba(15,23,42,0.6)]'
                         : 'border-slate-200 hover:border-teal-300'
                     }`}
                   >
-                    <span
-                      className="block h-2.5 w-16 rounded-full"
-                      style={{ backgroundColor: route.color }}
-                    />
-                    <span className="mt-3 block font-display text-lg text-slate-900">
-                      {route.name}
-                    </span>
-                    <span className="mt-3 flex flex-wrap gap-2">
+                    <div className="flex items-start justify-between gap-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedVehicleId(null)
+
+                          if (isSelected) {
+                            clearSelectedRoute()
+                            return
+                          }
+
+                          focusRoute(route.id)
+                        }}
+                        className="flex-1 text-left"
+                      >
+                        <span
+                          className="block h-2.5 w-16 rounded-full"
+                          style={{ backgroundColor: route.color }}
+                        />
+                        <span className="mt-3 block font-display text-lg text-slate-900">
+                          {route.name}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRouteInfoRouteId(route.id)}
+                        className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
+                      >
+                        Info
+                      </button>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
                       {distanceMeters !== null ? (
                         <span
                           className={`rounded-full px-3 py-1 text-xs font-semibold ${getRouteDistanceTone(
@@ -935,8 +1212,28 @@ function PassengerMapContent({
                           {routeStats.stopped === 1 ? '' : 's'}
                         </span>
                       ) : null}
-                    </span>
-                  </button>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedVehicleId(null)
+
+                        if (isSelected) {
+                          clearSelectedRoute()
+                          return
+                        }
+
+                        focusRoute(route.id)
+                      }}
+                      className={`mt-4 inline-flex min-h-10 w-full items-center justify-center rounded-full px-4 text-sm font-semibold transition ${
+                        isSelected
+                          ? 'bg-slate-100 text-slate-700'
+                          : 'bg-slate-900 text-white hover:bg-teal-700'
+                      }`}
+                    >
+                      {isSelected ? 'Ruta seleccionada' : 'Ver en el mapa'}
+                    </button>
+                  </article>
                 )
               })}
             </div>
@@ -951,23 +1248,30 @@ function PassengerMapContent({
         selectedRouteId={selectedRoute?.id ?? null}
         onClose={() => setRoutePickerOpen(false)}
         onTransportTypeChange={(transportType) => {
-          setTransportTypePreference(transportType)
+          setRouteCarouselTransportType(transportType)
+          setHasTransportTypeFilter(true)
           clearSelectedRoute()
           setSelectedVehicleId(null)
         }}
         onRouteSelect={(routeId) => {
-          setSelectedVehicleId(null)
-          setSelectedRouteId(routeId)
+          focusRoute(routeId)
           setRoutePickerOpen(false)
         }}
         onClearSelection={() => {
           clearSelectedRoute()
+          setHasTransportTypeFilter(false)
           setSelectedVehicleId(null)
           setRoutePickerOpen(false)
         }}
       />
 
       {isInfoOpen ? <InfoModal onClose={() => setInfoOpen(false)} /> : null}
+      {routeInfoRoute ? (
+        <RouteInfoModal
+          route={routeInfoRoute}
+          onClose={() => setRouteInfoRouteId(null)}
+        />
+      ) : null}
     </>
   )
 }
