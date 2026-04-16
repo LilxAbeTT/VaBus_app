@@ -13,9 +13,7 @@ import {
   formatElapsedSignalTime,
   getMinimumDistanceToRouteMeters,
 } from '../../../lib/trackingSignal'
-import {
-  useDriverLocationTracking,
-} from '../hooks/useDriverLocationTracking'
+import { useDriverLocationTracking } from '../hooks/useDriverLocationTracking'
 import type { DriverLocationReading } from '../hooks/locationTrackingTypes'
 import {
   appendQueuedNativeTrackingReading,
@@ -40,6 +38,51 @@ import {
   readStoredAutoSharePreference,
   writeStoredAutoSharePreference,
 } from './driverStatusCardUtils'
+
+function getSharingStatusLabel({
+  currentServiceStatus,
+  permissionState,
+  trackingStatus,
+  trackingModeLabel,
+}: {
+  currentServiceStatus?: 'active' | 'paused' | 'completed'
+  permissionState: string
+  trackingStatus: string
+  trackingModeLabel: string
+}) {
+  if (currentServiceStatus !== 'active') {
+    return 'Ubicación detenida'
+  }
+
+  if (trackingStatus === 'requesting_permission') {
+    return 'Solicitando permiso'
+  }
+
+  if (trackingStatus === 'waiting_first_signal') {
+    return 'Esperando primera señal'
+  }
+
+  if (
+    trackingStatus === 'first_signal_received' ||
+    trackingStatus === 'tracking'
+  ) {
+    return `Compartiendo desde ${trackingModeLabel.toLowerCase()}`
+  }
+
+  if (trackingStatus === 'signal_timeout') {
+    return 'Sin señal inicial'
+  }
+
+  if (permissionState === 'denied') {
+    return 'Permiso bloqueado'
+  }
+
+  if (permissionState === 'unsupported') {
+    return 'Solo modo manual'
+  }
+
+  return 'Lista para compartir'
+}
 
 export function DriverStatusCard({
   session,
@@ -69,7 +112,12 @@ export function DriverStatusCard({
   const finishCurrentService = useMutation(api.driver.finishCurrentService)
   const addLocationUpdate = useMutation(api.driver.addLocationUpdate)
   const changeAssignedRoute = useMutation(api.driver.changeAssignedRoute)
-  const panelState = useQuery(api.driver.getPanelState, {
+  const reportRouteScheduleIssue = useMutation(api.driver.reportRouteScheduleIssue)
+
+  const panelContext = useQuery(api.driver.getPanelContext, {
+    sessionToken: session.token,
+  })
+  const currentServiceState = useQuery(api.driver.getCurrentServiceState, {
     sessionToken: session.token,
   })
 
@@ -83,6 +131,9 @@ export function DriverStatusCard({
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isLoggingOut, setIsLoggingOut] = useState(false)
+  const [isRefreshingLocation, setIsRefreshingLocation] = useState(false)
+  const [isReportingMissingSchedule, setIsReportingMissingSchedule] =
+    useState(false)
   const [shouldAutoResumeShare, setShouldAutoResumeShare] = useState(() =>
     readStoredAutoSharePreference(session.user.id),
   )
@@ -97,10 +148,15 @@ export function DriverStatusCard({
   const activeServiceIdRef = useRef<string | null>(null)
   const previousServiceIdRef = useRef<string | null>(null)
 
-  const currentService = panelState?.currentService ?? null
+  const currentService =
+    currentServiceState === undefined ? undefined : currentServiceState ?? null
+  const availableRoutes = useMemo(
+    () => panelContext?.availableRoutes ?? [],
+    [panelContext?.availableRoutes],
+  )
   const isNativeBackgroundTracking = trackingMode === 'native-background'
   const showManualFallback = currentService?.status === 'active'
-  const hasAssignedVehicle = Boolean(panelState?.vehicle)
+  const hasAssignedVehicle = Boolean(panelContext?.vehicle)
   const isRealtimeBusy =
     trackingStatus === 'requesting_permission' ||
     trackingStatus === 'waiting_first_signal'
@@ -111,31 +167,39 @@ export function DriverStatusCard({
     currentService?.lastLocationUpdateAt ?? null,
     currentTimeMs,
   )
-  const trackingModeLabel = isNativeBackgroundTracking ? 'App nativa' : 'Navegador'
-  const backgroundSupportLabel = supportsBackgroundTracking
-    ? 'Segundo plano listo'
-    : 'Segundo plano no garantizado'
+  const trackingModeLabel =
+    isNativeBackgroundTracking ? 'App nativa' : 'Navegador'
   const backgroundCapabilityMessage = supportsBackgroundTracking
-    ? 'La app puede seguir compartiendo tu ubicacion con la pantalla bloqueada o minimizada mientras el servicio siga activo.'
-    : 'En navegador el tracking depende de mantener la pestana visible. Para segundo plano usa la app movil del conductor.'
+    ? 'La app puede seguir compartiendo tu ubicación con la pantalla bloqueada o minimizada mientras el servicio siga activo.'
+    : 'En navegador el tracking depende de mantener la pestaña visible. Para segundo plano usa la app móvil del conductor.'
+  const sharingStatusLabel = getSharingStatusLabel({
+    currentServiceStatus: currentService?.status,
+    permissionState,
+    trackingStatus,
+    trackingModeLabel,
+  })
 
   useEffect(() => {
-    if (!panelState) {
+    if (!panelContext) {
       return
     }
 
     const nextRouteId =
       currentService?.routeId ??
-      panelState.preferredRouteId ??
-      panelState.vehicle?.defaultRouteId ??
-      panelState.availableRoutes[0]?.id ??
+      panelContext.preferredRouteId ??
+      panelContext.vehicle?.defaultRouteId ??
+      availableRoutes[0]?.id ??
       ''
 
     if (nextRouteId) {
       setSelectedRouteId((currentValue) => currentValue || nextRouteId)
       setPendingRouteId((currentValue) => currentValue || nextRouteId)
     }
-  }, [currentService?.routeId, panelState])
+  }, [
+    availableRoutes,
+    currentService?.routeId,
+    panelContext,
+  ])
 
   useEffect(() => {
     if (currentService?.id) {
@@ -159,16 +223,15 @@ export function DriverStatusCard({
   }, [currentService?.id, session.user.id])
 
   const selectedRoute = useMemo(
-    () =>
-      panelState?.availableRoutes.find((route) => route.id === selectedRouteId) ?? null,
-    [panelState?.availableRoutes, selectedRouteId],
+    () => availableRoutes.find((route) => route.id === selectedRouteId) ?? null,
+    [availableRoutes, selectedRouteId],
   )
   const routeInView = useMemo(
     () =>
-      panelState?.availableRoutes.find(
+      availableRoutes.find(
         (route) => route.id === (currentService?.routeId ?? selectedRouteId),
       ) ?? selectedRoute,
-    [currentService?.routeId, panelState?.availableRoutes, selectedRoute, selectedRouteId],
+    [availableRoutes, currentService?.routeId, selectedRoute, selectedRouteId],
   )
 
   const suggestedPoint = useMemo(() => {
@@ -224,10 +287,6 @@ export function DriverStatusCard({
   }, [session.user.id, shouldAutoResumeShare])
 
   useEffect(() => {
-    if (!panelState) {
-      return
-    }
-
     if (currentService?.status === 'active') {
       return
     }
@@ -237,7 +296,7 @@ export function DriverStatusCard({
     if (shouldAutoResumeShare) {
       setShouldAutoResumeShare(false)
     }
-  }, [currentService?.status, panelState, shouldAutoResumeShare, stopTracking])
+  }, [currentService?.status, shouldAutoResumeShare, stopTracking])
 
   const sendLocationUpdate = useCallback(
     async (
@@ -327,7 +386,7 @@ export function DriverStatusCard({
       if (!routeInView) {
         return {
           accepted: false,
-          rejectionMessage: 'No hay una ruta activa para validar tu ubicacion.',
+          rejectionMessage: 'No hay una ruta activa para validar tu ubicación.',
         }
       }
 
@@ -379,7 +438,7 @@ export function DriverStatusCard({
       if (!routeInView) {
         return {
           accepted: false,
-          rejectionMessage: 'No hay una ruta activa para validar tu ubicacion.',
+          rejectionMessage: 'No hay una ruta activa para validar tu ubicación.',
         }
       }
 
@@ -418,7 +477,7 @@ export function DriverStatusCard({
           accepted: false,
           shouldContinue: true,
           rejectionMessage:
-            'No se encontro el servicio activo para sincronizar esta ubicacion.',
+            'No se encontró el servicio activo para sincronizar esta ubicación.',
         }
       }
 
@@ -431,7 +490,7 @@ export function DriverStatusCard({
           accepted: false,
           shouldContinue: true,
           rejectionMessage:
-            'La app seguira guardando lecturas hasta recuperar conexion.',
+            'La app seguirá guardando lecturas hasta recuperar conexión.',
         }
       }
 
@@ -549,11 +608,11 @@ export function DriverStatusCard({
     isNativeBackgroundTracking,
   ])
 
-  if (!panelState) {
+  if (!panelContext || currentService === undefined) {
     return (
       <DriverPanelEmptyState
         title="Cargando tu panel"
-        description="Estamos validando tu sesion, tu unidad y la ruta actual."
+        description="Estamos validando tu sesión, tu unidad y la ruta actual."
       />
     )
   }
@@ -561,17 +620,17 @@ export function DriverStatusCard({
   if (!hasAssignedVehicle) {
     return (
       <DriverPanelEmptyState
-        title="Tu cuenta aun no tiene unidad asignada"
-        description="Pide a administracion que te asigne una unidad para poder iniciar ruta."
+        title="Tu cuenta aún no tiene unidad asignada"
+        description="Pide a administración que te asigne una unidad para poder iniciar ruta."
       />
     )
   }
 
-  if (panelState.availableRoutes.length === 0) {
+  if (availableRoutes.length === 0) {
     return (
       <DriverPanelEmptyState
         title="No hay rutas disponibles"
-        description="Las rutas oficiales no estan activas en este momento."
+        description="Las rutas oficiales no están activas en este momento."
       />
     )
   }
@@ -598,11 +657,12 @@ export function DriverStatusCard({
       permissionState === 'granted' ? true : await requestPermission()
 
     if (!hasPermission) {
-      setFeedbackMessage('Autoriza tu ubicacion para empezar a compartir.')
-      return
+      setFeedbackMessage('Autoriza tu ubicación para empezar a compartir.')
+      return false
     }
 
     startTracking(sendTrackedLocationUpdate)
+    return true
   }
 
   const handleStartRoute = () => {
@@ -626,7 +686,7 @@ export function DriverStatusCard({
         activeServiceIdRef.current = result.serviceId
         setFeedbackMessage('Ruta reanudada.')
       } else {
-        setFeedbackMessage('Tu ruta ya esta activa.')
+        setFeedbackMessage('Tu ruta ya está activa.')
       }
 
       setShouldAutoResumeShare(true)
@@ -685,14 +745,69 @@ export function DriverStatusCard({
     const lng = Number(manualLng)
 
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-      setErrorMessage('Ingresa una latitud y longitud validas.')
+      setErrorMessage('Ingresa una latitud y longitud válidas.')
       return
     }
 
     runAction(async () => {
       await sendLocationUpdate(lat, lng)
-      setFeedbackMessage('Ubicacion enviada.')
+      setFeedbackMessage('Ubicación enviada.')
     })
+  }
+
+  const handleRefreshLocation = () => {
+    if (currentService?.status !== 'active') {
+      return
+    }
+
+    if (isShareRunning) {
+      setFeedbackMessage('La ubicación ya se está compartiendo.')
+      return
+    }
+
+    setErrorMessage(null)
+    setFeedbackMessage(null)
+    setIsRefreshingLocation(true)
+
+    void (async () => {
+      try {
+        const started = await beginRealtimeShare()
+
+        if (started) {
+          setShouldAutoResumeShare(true)
+          setFeedbackMessage('Recargando tu ubicación real.')
+        }
+      } catch (error) {
+        setErrorMessage(getErrorMessage(error))
+      } finally {
+        setIsRefreshingLocation(false)
+      }
+    })()
+  }
+
+  const handleReportMissingSchedule = () => {
+    if (!routeInView || isReportingMissingSchedule) {
+      return
+    }
+
+    setIsReportingMissingSchedule(true)
+    setErrorMessage(null)
+
+    void (async () => {
+      try {
+        await reportRouteScheduleIssue({
+          sessionToken: session.token,
+          routeId: routeInView.id as Id<'routes'>,
+        })
+        setFeedbackMessage(
+          'Se notificó a administración que esta ruta no muestra horario.',
+        )
+      } catch (error) {
+        setErrorMessage(getErrorMessage(error))
+      } finally {
+        setIsReportingMissingSchedule(false)
+      }
+    })()
   }
 
   const handleLogout = () => {
@@ -713,22 +828,22 @@ export function DriverStatusCard({
 
   const lastSignalLabel = currentService?.lastLocationUpdateAt
     ? timeSinceLastSignal
-    : 'Sin senal aun'
+    : 'Sin señal aún'
 
   return (
     <>
       <section className="space-y-3">
         <DriverStatusSummary
-          driverName={panelState.driver?.name ?? session.user.name}
-          vehicle={panelState.vehicle}
+          driverName={panelContext.driver?.name ?? session.user.name}
+          vehicle={panelContext.vehicle}
           routeInView={routeInView}
           currentService={currentService}
+          sharingStatusLabel={sharingStatusLabel}
           lastSignalLabel={lastSignalLabel}
-          trackingModeLabel={trackingModeLabel}
-          backgroundSupportLabel={backgroundSupportLabel}
           isLoggingOut={isLoggingOut}
           isSubmitting={isSubmitting}
           isShareRunning={isShareRunning}
+          isRefreshingLocation={isRefreshingLocation || isRealtimeBusy}
           onLogout={handleLogout}
           onOpenRouteInfo={() => setRouteInfoOpen(true)}
           onOpenRouteChange={() => {
@@ -738,6 +853,7 @@ export function DriverStatusCard({
           onStartRoute={handleStartRoute}
           onPauseRoute={handlePauseRoute}
           onFinishRoute={handleFinishRoute}
+          onRefreshLocation={handleRefreshLocation}
         />
 
         <section className="panel overflow-hidden px-4 py-4 sm:px-5 sm:py-5">
@@ -815,7 +931,7 @@ export function DriverStatusCard({
 
       {isRouteChangeOpen ? (
         <DriverRouteChangeModal
-          routes={panelState.availableRoutes}
+          routes={availableRoutes}
           currentRouteId={routeInView?.id ?? selectedRouteId}
           pendingRouteId={pendingRouteId}
           onPendingRouteChange={setPendingRouteId}
@@ -829,6 +945,8 @@ export function DriverStatusCard({
         <DriverRouteInfoModal
           route={routeInView}
           onClose={() => setRouteInfoOpen(false)}
+          onReportMissingSchedule={handleReportMissingSchedule}
+          isReportingMissingSchedule={isReportingMissingSchedule}
         />
       ) : null}
     </>

@@ -67,7 +67,7 @@ export async function recordDriverLocationUpdate(
 
   if (!currentService || currentService.status !== 'active') {
     throw new ConvexError(
-      'Activa o reanuda un servicio antes de enviar ubicacion.',
+      'Activa o reanuda un servicio antes de enviar ubicación.',
     )
   }
 
@@ -86,12 +86,12 @@ export async function recordDriverLocationUpdate(
   if (!plausibility.accepted) {
     if (plausibility.reason === 'low_accuracy') {
       throw new ConvexError(
-        'La precision del GPS es demasiado baja para compartir esta ubicacion.',
+        'La precisión del GPS es demasiado baja para compartir esta ubicación.',
       )
     }
 
     throw new ConvexError(
-      'La ubicacion recibida cae demasiado lejos de la ruta activa.',
+      'La ubicación recibida cae demasiado lejos de la ruta activa.',
     )
   }
 

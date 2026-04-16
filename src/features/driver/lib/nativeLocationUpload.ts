@@ -39,7 +39,7 @@ function parseUploadResponsePayload(data: unknown): NativeLocationUploadResponse
 
 function buildRetryableUploadError() {
   return new NativeLocationUploadError(
-    'No fue posible sincronizar la ubicacion en este momento. Se reintentara cuando vuelva la conexion.',
+    'No fue posible sincronizar la ubicación en este momento. Se reintentará cuando vuelva la conexión.',
     true,
   )
 }
@@ -81,7 +81,7 @@ export async function uploadNativeLocationUpdate({
   }
 
   const payload = parseUploadResponsePayload(response.data)
-  const errorMessage = payload.error ?? 'No fue posible sincronizar la ubicacion.'
+  const errorMessage = payload.error ?? 'No fue posible sincronizar la ubicación.'
 
   if (response.status >= 500 || response.status === 408 || response.status === 429) {
     throw buildRetryableUploadError()

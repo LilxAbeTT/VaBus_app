@@ -30,13 +30,13 @@ function normalizePermissionState(
 function getLocationErrorMessage(error: GeolocationPositionError) {
   switch (error.code) {
     case error.PERMISSION_DENIED:
-      return 'El permiso de ubicacion fue denegado.'
+      return 'El permiso de ubicación fue denegado.'
     case error.TIMEOUT:
-      return 'La ubicacion tardo demasiado en responder.'
+      return 'La ubicación tardó demasiado en responder.'
     case error.POSITION_UNAVAILABLE:
-      return 'No fue posible obtener tu ubicacion en este momento.'
+      return 'No fue posible obtener tu ubicación en este momento.'
     default:
-      return 'Ocurrio un error al leer tu ubicacion.'
+      return 'Ocurrió un error al leer tu ubicación.'
   }
 }
 
@@ -75,7 +75,7 @@ export function usePassengerGeolocation() {
       setPermissionState('unsupported')
       setIsRequestingPermission(false)
       setErrorMessage(
-        'Este navegador no soporta geolocalizacion para el mapa del pasajero.',
+        'Este navegador no soporta geolocalización para el mapa del pasajero.',
       )
       return
     }

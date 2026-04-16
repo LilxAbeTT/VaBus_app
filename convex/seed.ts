@@ -29,7 +29,7 @@ const adminSeeds = [
   {
     emails: ['admin@cabobus.app'],
     email: 'admin@cabobus.app',
-    name: 'Administracion CaboBus',
+      name: 'Administración CaboBus',
     password: 'Admin12345',
   },
 ]

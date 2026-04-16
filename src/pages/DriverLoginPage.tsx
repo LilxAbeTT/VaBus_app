@@ -46,7 +46,7 @@ export function DriverLoginPage() {
   if (!convexUrl) {
     return (
       <DriverLoginEmptyState
-        title="Convex aun no esta configurado"
+        title="Convex aún no está configurado"
         description="Inicia Convex para habilitar el login del conductor."
       />
     )
@@ -55,7 +55,7 @@ export function DriverLoginPage() {
   if (session && verifiedSession === undefined) {
     return (
       <DriverLoginEmptyState
-        title="Validando sesion"
+        title="Validando sesión"
         description="Comprobando si el acceso del conductor sigue vigente."
       />
     )
@@ -71,8 +71,10 @@ export function DriverLoginPage() {
       title="Ingreso del conductor"
       description="Accede con tus credenciales operativas para abrir, pausar, reanudar o finalizar tu servicio desde el celular."
       badgeLabel="Acceso conductor"
-      onSuccess={(nextSession) => {
-        setSession(nextSession)
+      showLogo
+      showDriverSupport
+      onSuccess={(nextSession, options) => {
+        setSession(nextSession, options)
         navigate('/driver', { replace: true })
       }}
     />

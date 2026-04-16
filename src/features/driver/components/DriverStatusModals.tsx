@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import type { BusRoute } from '../../../types/domain'
 import {
   getTransportTypeLabel,
+  hasRouteSchedule,
   parseRouteDirection,
 } from './driverStatusCardUtils'
 
@@ -23,7 +24,6 @@ export function DriverPanelEmptyState({
 }) {
   return (
     <section className="panel px-4 py-5 sm:px-6 sm:py-6">
-      <p className="eyebrow">Conductor</p>
       <h2 className="mt-3 font-display text-xl text-slate-900 sm:text-2xl">
         {title}
       </h2>
@@ -37,11 +37,16 @@ export function DriverPanelEmptyState({
 export function DriverRouteInfoModal({
   route,
   onClose,
+  onReportMissingSchedule,
+  isReportingMissingSchedule,
 }: {
   route: BusRoute
   onClose: () => void
+  onReportMissingSchedule: () => void
+  isReportingMissingSchedule: boolean
 }) {
   const routeDetails = parseRouteDirection(route.direction)
+  const routeHasSchedule = hasRouteSchedule(route.direction)
 
   return (
     <ModalPortal>
@@ -52,7 +57,7 @@ export function DriverRouteInfoModal({
         <div
           role="dialog"
           aria-modal="true"
-          aria-label={`Informacion de ${route.name}`}
+          aria-label={`Información de ${route.name}`}
           className="panel w-full max-w-md px-5 py-5"
           onClick={(event) => event.stopPropagation()}
         >
@@ -70,7 +75,7 @@ export function DriverRouteInfoModal({
               type="button"
               onClick={onClose}
               className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
-              aria-label="Cerrar informacion de ruta"
+              aria-label="Cerrar información de ruta"
             >
               X
             </button>
@@ -91,7 +96,7 @@ export function DriverRouteInfoModal({
                 Inicio
               </p>
               <p className="mt-2 text-sm font-semibold text-slate-900">
-                {routeDetails.startTime ?? 'No disponible'}
+                {routeDetails.startTime ?? 'Pendiente'}
               </p>
             </div>
             <div className="rounded-[1.1rem] border border-slate-200 bg-white px-3 py-3">
@@ -99,7 +104,7 @@ export function DriverRouteInfoModal({
                 Finaliza
               </p>
               <p className="mt-2 text-sm font-semibold text-slate-900">
-                {routeDetails.endTime ?? 'No disponible'}
+                {routeDetails.endTime ?? 'Pendiente'}
               </p>
             </div>
             <div className="rounded-[1.1rem] border border-slate-200 bg-white px-3 py-3">
@@ -107,27 +112,30 @@ export function DriverRouteInfoModal({
                 Frecuencia
               </p>
               <p className="mt-2 text-sm font-semibold text-slate-900">
-                {routeDetails.frequency ?? 'No disponible'}
+                {routeDetails.frequency ?? 'Pendiente'}
               </p>
             </div>
           </div>
 
-          <div className="mt-4 flex flex-wrap gap-2">
-            {routeDetails.stops.length > 0 ? (
-              routeDetails.stops.map((stop) => (
-                <span
-                  key={stop}
-                  className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700"
-                >
-                  {stop}
-                </span>
-              ))
-            ) : (
-              <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-500">
-                No hay detalle adicional disponible.
-              </span>
-            )}
-          </div>
+          {!routeHasSchedule ? (
+            <div className="mt-4 rounded-[1.2rem] border border-amber-200 bg-amber-50 px-4 py-4">
+              <p className="text-sm font-semibold text-amber-900">
+                Esta ruta no trae horario cargado en los datos actuales.
+              </p>
+              <p className="mt-2 text-sm leading-6 text-amber-800">
+                Puedes avisar a administración para que revise la importación o
+                complete el horario operativo.
+              </p>
+              <button
+                type="button"
+                onClick={onReportMissingSchedule}
+                disabled={isReportingMissingSchedule}
+                className="mt-4 min-h-10 rounded-full border border-amber-300 bg-white px-4 text-sm font-semibold text-amber-900 transition hover:border-amber-400 hover:bg-amber-100 disabled:cursor-not-allowed disabled:bg-amber-100 disabled:text-amber-500"
+              >
+                {isReportingMissingSchedule ? 'Avisando...' : 'Notificar a admin'}
+              </button>
+            </div>
+          ) : null}
         </div>
       </div>
     </ModalPortal>
@@ -182,7 +190,7 @@ export function DriverRouteChangeModal({
           </div>
 
           <div className="mt-4 rounded-[1.15rem] border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">
-            Al confirmar, administracion vera tu nuevo cambio de ruta.
+            Al confirmar, administración verá tu nuevo cambio de ruta.
           </div>
 
           <div className="mt-4 max-h-[48svh] space-y-2 overflow-y-auto pr-1">

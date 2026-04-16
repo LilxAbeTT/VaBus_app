@@ -75,7 +75,6 @@ export function HomePage() {
                 <BusIcon />
                 San José del Cabo, BCS
               </span>
-              
             </div>
           </div>
 
@@ -87,12 +86,11 @@ export function HomePage() {
                     {passengerAccess.title}
                   </h2>
                 </div>
-                
               </div>
               <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600 sm:text-base">
                 {passengerAccess.description}
               </p>
-              
+
               <Link
                 to={passengerAccess.href}
                 className="mt-5 flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 sm:mt-6"

@@ -130,7 +130,7 @@ export function formatDistanceRange(distanceMeters: number) {
   if (distanceMeters < 1_000) return '600 m a 1 km'
   if (distanceMeters < 2_000) return '1 a 2 km'
   if (distanceMeters < 4_000) return '2 a 4 km'
-  return 'mas de 4 km'
+  return 'más de 4 km'
 }
 
 export function parseRouteDirection(direction: string) {
@@ -196,44 +196,44 @@ export function getLocationStatusCopy({
 }): PassengerLocationStatusCopy {
   if (isRequestingPermission) {
     return {
-      title: 'Solicitando tu ubicacion',
+      title: 'Solicitando tu ubicación',
       description: 'Acepta el permiso para ver rutas cercanas y ubicarte en el mapa.',
     }
   }
 
   if (permissionState === 'granted') {
     return {
-      title: 'Tu ubicacion esta activa',
-      description: 'Las rutas cercanas se calculan en tiempo real segun tu posicion.',
+      title: 'Tu ubicación está activa',
+      description: 'Las rutas cercanas se calculan en tiempo real según tu posición.',
     }
   }
 
   if (permissionState === 'denied') {
     return {
-      title: 'La ubicacion esta bloqueada',
+      title: 'La ubicación está bloqueada',
       description:
         errorMessage ??
-        'Activa el permiso del navegador para ver rutas cercanas y usar el boton de ubicacion.',
+        'Activa el permiso del navegador para ver rutas cercanas y usar el botón de ubicación.',
     }
   }
 
   if (permissionState === 'unsupported') {
     return {
-      title: 'Tu navegador no soporta ubicacion',
-      description: 'Puedes seguir usando el mapa, pero no se mostraran rutas cercanas a ti.',
+      title: 'Tu navegador no soporta ubicación',
+      description: 'Puedes seguir usando el mapa, pero no se mostrarán rutas cercanas a ti.',
     }
   }
 
   if (permissionState === 'loading') {
     return {
-      title: 'Ubicando tu posicion',
+      title: 'Ubicando tu posición',
       description: 'Estamos preparando el permiso y la primera lectura del mapa.',
     }
   }
 
   return {
-    title: 'Ubicacion pendiente',
-    description: 'Esperando permiso o una primera lectura de ubicacion.',
+    title: 'Ubicación pendiente',
+    description: 'Esperando permiso o una primera lectura de ubicación.',
   }
 }
 

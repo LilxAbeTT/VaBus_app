@@ -2,6 +2,7 @@ import {
   getSignalAgeMs,
   REALTIME_MIN_DISTANCE_METERS,
   REALTIME_MIN_SIGNAL_INTERVAL_MS,
+  getServiceOperationalStatus,
   type ServiceOperationalStatus,
 } from '../../shared/tracking'
 import type { Coordinates } from '../types/domain'
@@ -47,6 +48,13 @@ export function getOperationalStatusLabel(
   }
 }
 
+export function getOperationalStatusFromLastUpdate(
+  recordedAt?: string | null,
+  nowMs = Date.now(),
+) {
+  return getServiceOperationalStatus(recordedAt, nowMs)
+}
+
 export function formatElapsedSignalTime(
   recordedAt?: string | null,
   nowMs = Date.now(),
@@ -54,7 +62,7 @@ export function formatElapsedSignalTime(
   const signalAgeMs = getSignalAgeMs(recordedAt, nowMs)
 
   if (signalAgeMs === null) {
-    return 'Sin senal'
+    return 'Sin señal'
   }
 
   if (signalAgeMs < 60_000) {

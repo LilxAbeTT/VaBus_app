@@ -12,7 +12,7 @@ export function getErrorMessage(error: unknown) {
     return error.message
   }
 
-  return 'Ocurrio un error inesperado.'
+  return 'Ocurrió un error inesperado.'
 }
 
 export function formatDateTime(value?: string) {
@@ -35,15 +35,15 @@ export function getTrackingRejectionMessage(
 ) {
   switch (reason) {
     case 'low_accuracy':
-      return 'La precision del GPS es baja. Busca mejor senal antes de compartir.'
+      return 'La precisión del GPS es baja. Busca mejor señal antes de compartir.'
     case 'outside_route_zone':
-      return 'La ubicacion detectada cae demasiado lejos de la ruta activa.'
+      return 'La ubicación detectada cae demasiado lejos de la ruta activa.'
     case 'too_soon':
-      return 'Aun no hace falta enviar una nueva ubicacion.'
+      return 'Aún no hace falta enviar una nueva ubicación.'
     case 'no_meaningful_change':
-      return 'No hubo movimiento suficiente para actualizar la ubicacion.'
+      return 'No hubo movimiento suficiente para actualizar la ubicación.'
     default:
-      return 'No fue posible validar la ubicacion.'
+      return 'No fue posible validar la ubicación.'
   }
 }
 
@@ -81,6 +81,48 @@ export function parseRouteDirection(direction: string) {
     endTime: endTimeMatch?.[1]?.trim() ?? null,
     frequency: frequencyMatch?.[1]?.trim() ?? null,
   }
+}
+
+export function getRouteScheduleLabel(direction: string) {
+  const routeDetails = parseRouteDirection(direction)
+
+  if (routeDetails.startTime && routeDetails.endTime) {
+    return `${routeDetails.startTime} - ${routeDetails.endTime}`
+  }
+
+  if (routeDetails.startTime) {
+    return `Entrada ${routeDetails.startTime}`
+  }
+
+  if (routeDetails.endTime) {
+    return `Salida ${routeDetails.endTime}`
+  }
+
+  return 'Horario pendiente de captura'
+}
+
+export function hasRouteSchedule(direction: string) {
+  const routeDetails = parseRouteDirection(direction)
+
+  return Boolean(routeDetails.startTime || routeDetails.endTime)
+}
+
+export function formatElapsedSignalMinutes(
+  recordedAt?: string | null,
+  nowMs = Date.now(),
+) {
+  if (!recordedAt) {
+    return 'Sin señal aún'
+  }
+
+  const parsedTime = Date.parse(recordedAt)
+
+  if (Number.isNaN(parsedTime)) {
+    return 'Sin señal aún'
+  }
+
+  const elapsedMinutes = Math.max(0, Math.floor((nowMs - parsedTime) / 60_000))
+  return `Hace ${elapsedMinutes} min`
 }
 
 function getSharePreferenceKey(driverId: string) {

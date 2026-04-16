@@ -35,7 +35,7 @@ function getRequestErrorMessage(error: unknown) {
     return error.message
   }
 
-  return 'No fue posible procesar la ubicacion enviada desde la app.'
+  return 'No fue posible procesar la ubicación enviada desde la app.'
 }
 
 http.route({
@@ -61,7 +61,7 @@ http.route({
       return jsonResponse(
         {
           ok: false,
-          error: 'El payload de ubicacion no es JSON valido.',
+          error: 'El payload de ubicación no es JSON válido.',
         },
         400,
       )
@@ -71,7 +71,7 @@ http.route({
       return jsonResponse(
         {
           ok: false,
-          error: 'El payload de ubicacion debe ser un objeto JSON.',
+          error: 'El payload de ubicación debe ser un objeto JSON.',
         },
         400,
       )
@@ -96,7 +96,7 @@ http.route({
         {
           ok: false,
           error:
-            'El payload de ubicacion requiere sessionToken, lat y lng validos.',
+            'El payload de ubicación requiere sessionToken, lat y lng válidos.',
         },
         400,
       )
@@ -124,7 +124,7 @@ http.route({
       )
     } catch (error) {
       const errorMessage = getRequestErrorMessage(error)
-      const statusCode = errorMessage.includes('La sesion ya no es valida')
+      const statusCode = errorMessage.includes('La sesión ya no es válida')
         ? 401
         : 400
 

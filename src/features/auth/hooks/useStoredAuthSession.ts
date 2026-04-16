@@ -1,12 +1,17 @@
 import { useEffect, useState } from 'react'
 import type { AuthenticatedSession } from '../../../types/domain'
 
-function readStoredSession(storageKey: string) {
-  if (typeof window === 'undefined') {
+type SessionPersistence = 'local' | 'session'
+
+function readStoredSessionFromStorage(
+  storage: Storage | undefined,
+  storageKey: string,
+) {
+  if (!storage) {
     return null
   }
 
-  const storedValue = window.localStorage.getItem(storageKey)
+  const storedValue = storage.getItem(storageKey)
 
   if (!storedValue) {
     return null
@@ -24,16 +29,54 @@ function readStoredSession(storageKey: string) {
       return parsedValue
     }
   } catch {
-    window.localStorage.removeItem(storageKey)
+    storage.removeItem(storageKey)
   }
 
-  window.localStorage.removeItem(storageKey)
+  storage.removeItem(storageKey)
 
   return null
 }
 
+function readStoredSession(storageKey: string): {
+  session: AuthenticatedSession | null
+  persistence: SessionPersistence
+} {
+  if (typeof window === 'undefined') {
+    return {
+      session: null,
+      persistence: 'local',
+    }
+  }
+
+  const localSession = readStoredSessionFromStorage(window.localStorage, storageKey)
+
+  if (localSession) {
+    return {
+      session: localSession,
+      persistence: 'local',
+    }
+  }
+
+  const sessionSession = readStoredSessionFromStorage(
+    window.sessionStorage,
+    storageKey,
+  )
+
+  if (sessionSession) {
+    return {
+      session: sessionSession,
+      persistence: 'session',
+    }
+  }
+
+  return {
+    session: null,
+    persistence: 'local',
+  }
+}
+
 export function useStoredAuthSession(storageKey: string) {
-  const [session, setSession] = useState<AuthenticatedSession | null>(() =>
+  const [{ session, persistence }, setStoredSessionState] = useState(() =>
     readStoredSession(storageKey),
   )
 
@@ -43,16 +86,34 @@ export function useStoredAuthSession(storageKey: string) {
     }
 
     if (!session) {
+      window.sessionStorage.removeItem(storageKey)
       window.localStorage.removeItem(storageKey)
       return
     }
 
-    window.localStorage.setItem(storageKey, JSON.stringify(session))
-  }, [session, storageKey])
+    const storage =
+      persistence === 'session' ? window.sessionStorage : window.localStorage
+    const alternateStorage =
+      persistence === 'session' ? window.localStorage : window.sessionStorage
+
+    alternateStorage.removeItem(storageKey)
+    storage.setItem(storageKey, JSON.stringify(session))
+  }, [persistence, session, storageKey])
 
   return {
     session,
-    setSession,
-    clearSession: () => setSession(null),
+    setSession: (
+      nextSession: AuthenticatedSession,
+      options?: { persistent?: boolean },
+    ) =>
+      setStoredSessionState({
+        session: nextSession,
+        persistence: options?.persistent === false ? 'session' : 'local',
+      }),
+    clearSession: () =>
+      setStoredSessionState({
+        session: null,
+        persistence: 'local',
+      }),
   }
 }

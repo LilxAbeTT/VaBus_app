@@ -77,7 +77,7 @@ export async function getOpenServiceForSession(
     serviceByDriver._id !== serviceByVehicle._id
   ) {
     throw new ConvexError(
-      'La sesion tiene conflicto entre el conductor y la unidad seleccionada.',
+      'La sesión tiene conflicto entre el conductor y la unidad seleccionada.',
     )
   }
 
@@ -107,7 +107,7 @@ function ensureSingleOpenService(
 
   if (services.length > 1) {
     throw new ConvexError(
-      `Se detectaron multiples servicios abiertos para la misma ${scope}. Corrige el estado operativo antes de continuar.`,
+      `Se detectaron múltiples servicios abiertos para la misma ${scope}. Corrige el estado operativo antes de continuar.`,
     )
   }
 

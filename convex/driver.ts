@@ -1,5 +1,5 @@
 import { ConvexError, v } from 'convex/values'
-import type { Id } from './_generated/dataModel'
+import type { Doc, Id } from './_generated/dataModel'
 import { mutation, query, type DatabaseReader } from './_generated/server'
 import { requireAuthenticatedSession, toUserSummary } from './lib/auth'
 import {
@@ -32,6 +32,44 @@ async function getAssignedVehicle(
   return await db.get(preferredVehicleId)
 }
 
+function buildCurrentServiceState(
+  currentService: Awaited<ReturnType<typeof getOpenServiceForDriver>>,
+  routeById: Map<Id<'routes'>, Doc<'routes'>>,
+  nowMs = Date.now(),
+) {
+  if (!currentService) {
+    return null
+  }
+
+  const route = routeById.get(currentService.routeId)
+
+  return {
+    id: currentService._id,
+    routeId: currentService.routeId,
+    routeName: currentService.routeName ?? route?.name ?? 'Ruta activa',
+    status: currentService.status,
+    startedAt: currentService.startedAt,
+    lastLocationUpdateAt: currentService.lastLocationUpdateAt ?? undefined,
+    lastPosition: currentService.lastPosition,
+    lastLocationSource: currentService.lastLocationSource,
+    operationalStatus: getOperationalStatusForService({
+      activeService: currentService,
+      nowMs,
+    }),
+  }
+}
+
+async function getActiveRoutes(db: DatabaseReader) {
+  return await db
+    .query('routes')
+    .withIndex('by_status', (q) => q.eq('status', 'active'))
+    .collect()
+}
+
+function getRouteByIdMap(routes: Awaited<ReturnType<typeof getActiveRoutes>>) {
+  return new Map(routes.map((route) => [route._id, route]))
+}
+
 export const getPanelState = query({
   args: {
     sessionToken: v.string(),
@@ -44,36 +82,13 @@ export const getPanelState = query({
     )
 
     const [routes, currentService] = await Promise.all([
-      db
-        .query('routes')
-        .withIndex('by_status', (q) => q.eq('status', 'active'))
-        .collect(),
+      getActiveRoutes(db),
       getOpenServiceForDriver(db, driver._id),
     ])
 
     const vehicle = await getAssignedVehicle(db, driver, currentService?.vehicleId)
-    const routeById = new Map(routes.map((route) => [route._id, route]))
-
-    let currentServiceState = null
-
-    if (currentService) {
-      const route = routeById.get(currentService.routeId)
-
-      currentServiceState = {
-        id: currentService._id,
-        routeId: currentService.routeId,
-        routeName: currentService.routeName ?? route?.name ?? 'Ruta activa',
-        status: currentService.status,
-        startedAt: currentService.startedAt,
-        lastLocationUpdateAt: currentService.lastLocationUpdateAt ?? undefined,
-        lastPosition: currentService.lastPosition,
-        lastLocationSource: currentService.lastLocationSource,
-        operationalStatus: getOperationalStatusForService({
-          activeService: currentService,
-          nowMs: Date.now(),
-        }),
-      }
-    }
+    const routeById = getRouteByIdMap(routes)
+    const currentServiceState = buildCurrentServiceState(currentService, routeById)
 
     return {
       driver: toUserSummary(driver),
@@ -96,6 +111,61 @@ export const getPanelState = query({
   },
 })
 
+export const getPanelContext = query({
+  args: {
+    sessionToken: v.string(),
+  },
+  handler: async ({ db }, { sessionToken }) => {
+    const { user: driver } = await requireAuthenticatedSession(
+      db,
+      sessionToken,
+      'driver',
+    )
+
+    const routes = await getActiveRoutes(db)
+    const vehicle = await getAssignedVehicle(db, driver)
+
+    return {
+      driver: toUserSummary(driver),
+      vehicle: vehicle
+        ? {
+            id: vehicle._id,
+            unitNumber: vehicle.unitNumber,
+            label: vehicle.label,
+            status: vehicle.status,
+            defaultRouteId: vehicle.defaultRouteId,
+          }
+        : null,
+      availableRoutes: routes.map((route) => toRouteSummary(route)),
+      preferredRouteId: driver.defaultRouteId ?? vehicle?.defaultRouteId,
+    }
+  },
+})
+
+export const getCurrentServiceState = query({
+  args: {
+    sessionToken: v.string(),
+  },
+  handler: async ({ db }, { sessionToken }) => {
+    const { user: driver } = await requireAuthenticatedSession(
+      db,
+      sessionToken,
+      'driver',
+    )
+
+    const [routes, currentService] = await Promise.all([
+      getActiveRoutes(db),
+      getOpenServiceForDriver(db, driver._id),
+    ])
+
+    return buildCurrentServiceState(
+      currentService,
+      getRouteByIdMap(routes),
+      Date.now(),
+    )
+  },
+})
+
 export const activateService = mutation({
   args: {
     sessionToken: v.string(),
@@ -110,7 +180,7 @@ export const activateService = mutation({
 
     if (!driver.defaultVehicleId) {
       throw new ConvexError(
-        'Tu cuenta no tiene una unidad asignada. Contacta a administracion.',
+      'Tu cuenta no tiene una unidad asignada. Contacta a administración.',
       )
     }
 
@@ -123,11 +193,11 @@ export const activateService = mutation({
       ])
 
     if (!route || route.status !== 'active') {
-      throw new ConvexError('La ruta seleccionada no esta disponible.')
+    throw new ConvexError('La ruta seleccionada no está disponible.')
     }
 
     if (!vehicle || vehicle.status === 'maintenance') {
-      throw new ConvexError('Tu unidad asignada no esta disponible.')
+    throw new ConvexError('Tu unidad asignada no está disponible.')
     }
 
     if (currentDriverService) {
@@ -167,7 +237,7 @@ export const activateService = mutation({
     await recordSystemEvent(db, {
       category: 'service',
       title: 'Servicio iniciado',
-      description: `${vehicle.unitNumber} inicio servicio en ${route.name}.`,
+      description: `${vehicle.unitNumber} inició servicio en ${route.name}.`,
       actorName: driver.name,
       actorRole: 'driver',
       targetType: 'service',
@@ -205,7 +275,7 @@ export const pauseCurrentService = mutation({
     await recordSystemEvent(db, {
       category: 'service',
       title: 'Servicio pausado',
-      description: `${currentService.vehicleUnitNumber ?? 'Unidad'} pauso su servicio en ${currentService.routeName ?? 'ruta activa'}.`,
+      description: `${currentService.vehicleUnitNumber ?? 'Unidad'} pausó su servicio en ${currentService.routeName ?? 'ruta activa'}.`,
       actorName: driver.name,
       actorRole: 'driver',
       targetType: 'service',
@@ -242,7 +312,7 @@ export const resumeCurrentService = mutation({
     await recordSystemEvent(db, {
       category: 'service',
       title: 'Servicio reanudado',
-      description: `${currentService.vehicleUnitNumber ?? 'Unidad'} reanudo su servicio en ${currentService.routeName ?? 'ruta activa'}.`,
+      description: `${currentService.vehicleUnitNumber ?? 'Unidad'} reanudó su servicio en ${currentService.routeName ?? 'ruta activa'}.`,
       actorName: driver.name,
       actorRole: 'driver',
       targetType: 'service',
@@ -286,7 +356,7 @@ export const finishCurrentService = mutation({
     await recordSystemEvent(db, {
       category: 'service',
       title: 'Servicio finalizado',
-      description: `${currentService.vehicleUnitNumber ?? 'Unidad'} finalizo su servicio en ${currentService.routeName ?? 'ruta activa'}.`,
+      description: `${currentService.vehicleUnitNumber ?? 'Unidad'} finalizó su servicio en ${currentService.routeName ?? 'ruta activa'}.`,
       actorName: driver.name,
       actorRole: 'driver',
       targetType: 'service',
@@ -340,7 +410,7 @@ export const changeAssignedRoute = mutation({
     ])
 
     if (!route || route.status !== 'active') {
-      throw new ConvexError('La ruta seleccionada no esta disponible.')
+    throw new ConvexError('La ruta seleccionada no está disponible.')
     }
 
     if (driver.defaultRouteId === route._id && currentService?.routeId === route._id) {
@@ -375,7 +445,7 @@ export const changeAssignedRoute = mutation({
       await recordSystemEvent(db, {
         category: 'route',
         title: 'Ruta reasignada',
-        description: `${driver.name} cambio su servicio a ${route.name}.`,
+      description: `${driver.name} cambió su servicio a ${route.name}.`,
         actorName: driver.name,
         actorRole: 'driver',
         targetType: 'route',
@@ -387,6 +457,40 @@ export const changeAssignedRoute = mutation({
       routeId: route._id,
       routeName: route.name,
       changedAt,
+    }
+  },
+})
+
+export const reportRouteScheduleIssue = mutation({
+  args: {
+    sessionToken: v.string(),
+    routeId: v.id('routes'),
+  },
+  handler: async ({ db }, { sessionToken, routeId }) => {
+    const { user: driver } = await requireAuthenticatedSession(
+      db,
+      sessionToken,
+      'driver',
+    )
+    const route = await db.get(routeId)
+
+    if (!route) {
+    throw new ConvexError('La ruta indicada ya no está disponible.')
+    }
+
+    await recordSystemEvent(db, {
+      category: 'route',
+      title: 'Ruta sin horario reportada',
+      description: `${driver.name} reportó que ${route.name} no muestra horario en el panel del conductor.`,
+      actorName: driver.name,
+      actorRole: 'driver',
+      targetType: 'route',
+      targetId: route._id,
+    })
+
+    return {
+      reportedAt: new Date().toISOString(),
+      routeId: route._id,
     }
   },
 })

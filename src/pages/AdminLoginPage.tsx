@@ -46,7 +46,7 @@ export function AdminLoginPage() {
   if (!convexUrl) {
     return (
       <AdminLoginEmptyState
-        title="Convex aun no esta configurado"
+        title="Convex aún no está configurado"
         description="Inicia Convex para habilitar el acceso administrativo."
       />
     )
@@ -55,7 +55,7 @@ export function AdminLoginPage() {
   if (session && verifiedSession === undefined) {
     return (
       <AdminLoginEmptyState
-        title="Validando sesion"
+        title="Validando sesión"
         description="Comprobando si el acceso administrativo sigue vigente."
       />
     )
@@ -69,7 +69,7 @@ export function AdminLoginPage() {
     <RoleLoginCard
       role="admin"
       title="Ingreso administrativo"
-      description="Accede por este enlace directo para gestionar conductores, unidades y operacion en tiempo real."
+      description="Accede por este enlace directo para gestionar conductores, unidades y operación en tiempo real."
       badgeLabel="Acceso admin"
       onSuccess={(nextSession) => {
         setSession(nextSession)

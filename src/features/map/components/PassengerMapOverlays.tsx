@@ -50,7 +50,7 @@ export function PassengerMapInfoModal({ onClose }: { onClose: () => void }) {
             <div>
               <p className="eyebrow">Ayuda</p>
               <h2 className="mt-2 font-display text-2xl text-slate-900">
-                Como usar el mapa
+                Cómo usar el mapa
               </h2>
             </div>
             <button
@@ -64,9 +64,9 @@ export function PassengerMapInfoModal({ onClose }: { onClose: () => void }) {
           </div>
 
           <div className="mt-4 space-y-3 text-sm leading-6 text-slate-600">
-            <p>Usa Rutas para elegir rapidamente una ruta y enfocarla.</p>
-            <p>Usa Mi ubicacion para centrar el mapa en tu posicion actual.</p>
-            <p>Toca una unidad para ver su estado y la hora de su ultima senal.</p>
+            <p>Usa Rutas para elegir rápidamente una ruta y enfocarla.</p>
+            <p>Usa Mi ubicación para centrar el mapa en tu posición actual.</p>
+            <p>Toca una unidad para ver su estado y la hora de su última señal.</p>
           </div>
         </div>
       </div>
@@ -92,13 +92,13 @@ export function PassengerRouteInfoModal({
         <div
           role="dialog"
           aria-modal="true"
-          aria-label={`Informacion de ${route.name}`}
+          aria-label={`Información de ${route.name}`}
           className="panel w-full max-w-md px-5 py-5"
           onClick={(event) => event.stopPropagation()}
         >
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="eyebrow">Informacion de ruta</p>
+              <p className="eyebrow">Información de ruta</p>
               <h2 className="mt-2 font-display text-2xl text-slate-900">
                 {route.name}
               </h2>
@@ -110,7 +110,7 @@ export function PassengerRouteInfoModal({
               type="button"
               onClick={onClose}
               className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
-              aria-label="Cerrar informacion de ruta"
+              aria-label="Cerrar información de ruta"
             >
               X
             </button>

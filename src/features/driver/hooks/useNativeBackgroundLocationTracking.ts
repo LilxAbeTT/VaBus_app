@@ -31,7 +31,7 @@ const PERMISSION_PROBE_OPTIONS = {
 const BACKGROUND_TRACKING_OPTIONS = {
   backgroundTitle: 'CaboBus Conductor',
   backgroundMessage:
-    'CaboBus comparte tu ubicacion para mantener visible tu unidad en tiempo real.',
+    'CaboBus comparte tu ubicación para mantener visible tu unidad en tiempo real.',
   requestPermissions: false,
   stale: false,
   distanceFilter: REALTIME_MIN_DISTANCE_METERS,
@@ -43,26 +43,26 @@ function isCallbackError(error: unknown): error is CallbackError {
 
 function getNativePermissionErrorMessage(error?: CallbackError) {
   if (!error) {
-    return 'No fue posible confirmar el permiso de ubicacion en la app.'
+    return 'No fue posible confirmar el permiso de ubicación en la app.'
   }
 
   if (error.code === 'NOT_AUTHORIZED') {
-    return 'La app no tiene permiso de ubicacion. Autoriza el acceso desde el sistema para compartir tu ruta.'
+    return 'La app no tiene permiso de ubicación. Autoriza el acceso desde el sistema para compartir tu ruta.'
   }
 
-  return error.message || 'No fue posible confirmar el permiso de ubicacion en la app.'
+  return error.message || 'No fue posible confirmar el permiso de ubicación en la app.'
 }
 
 function getNativeTrackingErrorMessage(error?: CallbackError) {
   if (!error) {
-    return 'Ocurrio un error inesperado durante el tracking en segundo plano.'
+    return 'Ocurrió un error inesperado durante el tracking en segundo plano.'
   }
 
   if (error.code === 'NOT_AUTHORIZED') {
-    return 'El permiso de ubicacion fue revocado mientras el tracking estaba activo.'
+    return 'El permiso de ubicación fue revocado mientras el tracking estaba activo.'
   }
 
-  return error.message || 'Ocurrio un error inesperado durante el tracking en segundo plano.'
+    return error.message || 'Ocurrió un error inesperado durante el tracking en segundo plano.'
 }
 
 function toTrackedReading(location: Location): DriverLocationReading {
@@ -224,7 +224,7 @@ export function useNativeBackgroundLocationTracking(): DriverLocationTrackingHoo
         'error',
         error instanceof Error
           ? error.message
-          : 'No fue posible enviar la ubicacion real desde la app nativa.',
+          : 'No fue posible enviar la ubicación real desde la app nativa.',
       )
 
       return {
@@ -232,7 +232,7 @@ export function useNativeBackgroundLocationTracking(): DriverLocationTrackingHoo
         rejectionMessage:
           error instanceof Error
             ? error.message
-            : 'No fue posible enviar la ubicacion real desde la app nativa.',
+            : 'No fue posible enviar la ubicación real desde la app nativa.',
       }
     } finally {
       isSendingRef.current = false
@@ -244,7 +244,7 @@ export function useNativeBackgroundLocationTracking(): DriverLocationTrackingHoo
       setPermissionState('unsupported')
       setTrackingStatus('error')
       setTrackingError(
-        'La geolocalizacion nativa no esta disponible fuera de Android o iOS.',
+        'La geolocalización nativa no está disponible fuera de Android o iOS.',
       )
       return false
     }
@@ -329,7 +329,7 @@ export function useNativeBackgroundLocationTracking(): DriverLocationTrackingHoo
             finalize(
               false,
               permissionStateRef.current,
-              'No fue posible confirmar una lectura inicial desde la app. Reintenta con mejor senal o usa el modo manual.',
+              'No fue posible confirmar una lectura inicial desde la app. Reintenta con mejor señal o usa el modo manual.',
             )
           }, PERMISSION_PROBE_TIMEOUT_MS)
         } catch (error) {
@@ -360,7 +360,7 @@ export function useNativeBackgroundLocationTracking(): DriverLocationTrackingHoo
       setPermissionState('unsupported')
       setTrackingStatus('error')
       setTrackingError(
-        'La geolocalizacion nativa no esta disponible fuera de Android o iOS.',
+        'La geolocalización nativa no está disponible fuera de Android o iOS.',
       )
       return
     }
@@ -368,7 +368,7 @@ export function useNativeBackgroundLocationTracking(): DriverLocationTrackingHoo
     if (permissionStateRef.current !== 'granted') {
       setTrackingStatus('stopped')
       setTrackingError(
-        'Solicita permiso de ubicacion antes de iniciar el tracking nativo.',
+        'Solicita permiso de ubicación antes de iniciar el tracking nativo.',
       )
       return
     }
@@ -439,7 +439,7 @@ export function useNativeBackgroundLocationTracking(): DriverLocationTrackingHoo
                 failTracking(
                   'signal_timeout',
                   result.rejectionMessage ??
-                    'No fue posible validar una primera ubicacion confiable desde la app.',
+                    'No fue posible validar una primera ubicación confiable desde la app.',
                 )
               }
             })()

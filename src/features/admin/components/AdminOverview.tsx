@@ -5,6 +5,8 @@ import { api } from '../../../../convex/_generated/api'
 import type { Id } from '../../../../convex/_generated/dataModel'
 import type {
   AdminDashboardState,
+  AdminManagementCatalogState,
+  AdminOperationalFeed,
   AuthenticatedSession,
 } from '../../../types/domain'
 import { useCurrentTime } from '../../../hooks/useCurrentTime'
@@ -12,6 +14,7 @@ import {
   formatElapsedSignalTime,
   getOperationalStatusLabel,
 } from '../../../lib/trackingSignal'
+import { useAdminManagementCatalog } from '../hooks/useAdminManagementCatalog'
 import { useAdminOperationalOverview } from '../hooks/useAdminOperationalOverview'
 
 function formatDateTime(value?: string) {
@@ -26,7 +29,7 @@ function formatDateTime(value?: string) {
 function getErrorMessage(error: unknown) {
   if (error instanceof ConvexError) return String(error.data)
   if (error instanceof Error) return error.message
-  return 'Ocurrio un error inesperado.'
+  return 'Ocurrió un error inesperado.'
 }
 
 function getPillTone(value: string) {
@@ -257,13 +260,13 @@ function AdminDashboardContent({
               Centro operativo CaboBus
             </h2>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
-              Gestiona servicios abiertos, conductores, unidades y el catalogo de
+              Gestiona servicios abiertos, conductores, unidades y el catálogo de
               rutas reales desde un solo panel.
             </p>
           </div>
           <aside className="rounded-[1.75rem] bg-[linear-gradient(180deg,rgba(237,249,245,0.98),rgba(248,244,234,0.95))] p-5">
             <p className="text-sm font-semibold uppercase tracking-[0.2em] text-teal-700">
-              Sesion admin
+              Sesión admin
             </p>
             <p className="mt-4 font-display text-2xl text-slate-900">
               {dashboard.admin.name}
@@ -284,7 +287,7 @@ function AdminDashboardContent({
               disabled={isLoggingOut}
               className="mt-5 flex min-h-11 w-full items-center justify-center rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:border-rose-300 hover:text-rose-700 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
             >
-              {isLoggingOut ? 'Cerrando sesion...' : 'Cerrar sesion'}
+              {isLoggingOut ? 'Cerrando sesión...' : 'Cerrar sesión'}
             </button>
           </aside>
         </div>
@@ -310,7 +313,7 @@ function AdminDashboardContent({
             <div>
               <p className="eyebrow">Servicios</p>
               <h3 className="mt-2 font-display text-xl text-slate-900 sm:text-2xl">
-                Operacion abierta
+                Operación abierta
               </h3>
             </div>
             <input
@@ -337,8 +340,8 @@ function AdminDashboardContent({
                 </div>
                 <div className="mt-4 grid gap-3 text-sm text-slate-600 sm:grid-cols-2 xl:grid-cols-4">
                   <p>Inicio: {formatDateTime(service.startedAt)}</p>
-                  <p>Ultima senal: {formatDateTime(service.lastSignalAt)}</p>
-                  <p>Tiempo desde la senal: {formatElapsedSignalTime(service.lastSignalAt, currentTimeMs)}</p>
+                  <p>Última señal: {formatDateTime(service.lastSignalAt)}</p>
+                  <p>Tiempo desde la señal: {formatElapsedSignalTime(service.lastSignalAt, currentTimeMs)}</p>
                   <p>Origen: {service.lastSignalSource === 'device' ? 'Dispositivo' : service.lastSignalSource === 'seed' ? 'Inicial' : 'Sin registro'}</p>
                 </div>
                 <div className="mt-4 flex flex-col gap-3 sm:flex-row">
@@ -347,14 +350,14 @@ function AdminDashboardContent({
                   <button type="button" onClick={() => runMutation(async () => { await finishService({ sessionToken, serviceId: service.id as Id<'activeServices'> }); setFeedbackMessage('Servicio finalizado.') })} disabled={isSubmitting} className="flex min-h-11 items-center justify-center rounded-full border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-rose-300 hover:text-rose-700 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400">Finalizar</button>
                 </div>
               </article>
-            )) : <p className="text-sm text-slate-600">No hay servicios que coincidan con la busqueda.</p>}
+            )) : <p className="text-sm text-slate-600">No hay servicios que coincidan con la búsqueda.</p>}
           </div>
         </article>
 
         <aside className="space-y-6">
           <article className="panel px-4 py-5 sm:px-5 sm:py-6">
             <p className="eyebrow">Rutas</p>
-            <h3 className="mt-2 font-display text-lg text-slate-900 sm:text-xl">Catalogo operativo</h3>
+            <h3 className="mt-2 font-display text-lg text-slate-900 sm:text-xl">Catálogo operativo</h3>
             <input type="text" value={routeSearch} onChange={(event) => setRouteSearch(event.target.value)} placeholder="Buscar ruta" className="mt-4 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-teal-500 focus:ring-4 focus:ring-teal-100" />
             <div className="mt-5 space-y-3">
               {filteredRoutes.map((route) => (
@@ -382,7 +385,7 @@ function AdminDashboardContent({
 
           <article className="panel px-4 py-5 sm:px-5 sm:py-6">
             <p className="eyebrow">Eventos</p>
-            <h3 className="mt-2 font-display text-lg text-slate-900 sm:text-xl">Bitacora reciente</h3>
+            <h3 className="mt-2 font-display text-lg text-slate-900 sm:text-xl">Bitácora reciente</h3>
             <div className="mt-5 space-y-3">
               {dashboard.events.map((event) => (
                 <article key={event.id} className="rounded-2xl border border-slate-200 bg-white px-4 py-4">
@@ -406,15 +409,15 @@ function AdminDashboardContent({
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="eyebrow">Conductores</p>
-              <h3 className="mt-2 font-display text-xl text-slate-900 sm:text-2xl">Gestion de conductores</h3>
+              <h3 className="mt-2 font-display text-xl text-slate-900 sm:text-2xl">Gestión de conductores</h3>
             </div>
-            {editingDriverId ? <button type="button" onClick={() => { setEditingDriverId(null); setDriverForm({ name: '', email: '', status: 'active', password: '', defaultRouteId: '', defaultVehicleId: '' }) }} className="text-sm font-semibold text-slate-500 transition hover:text-slate-800">Cancelar edicion</button> : null}
+            {editingDriverId ? <button type="button" onClick={() => { setEditingDriverId(null); setDriverForm({ name: '', email: '', status: 'active', password: '', defaultRouteId: '', defaultVehicleId: '' }) }} className="text-sm font-semibold text-slate-500 transition hover:text-slate-800">Cancelar edición</button> : null}
           </div>
           <input type="text" value={driverSearch} onChange={(event) => setDriverSearch(event.target.value)} placeholder="Buscar conductor" className="mt-4 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-teal-500 focus:ring-4 focus:ring-teal-100" />
           <div className="mt-5 grid gap-4">
             <input type="text" value={driverForm.name} onChange={(event) => setDriverForm((current) => ({ ...current, name: event.target.value }))} placeholder="Nombre del conductor" className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-slate-900 outline-none transition focus:border-teal-500 focus:ring-4 focus:ring-teal-100" />
             <input type="email" value={driverForm.email} onChange={(event) => setDriverForm((current) => ({ ...current, email: event.target.value }))} placeholder="conductor@cabobus.app" className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-slate-900 outline-none transition focus:border-teal-500 focus:ring-4 focus:ring-teal-100" />
-            <input type="password" value={driverForm.password} onChange={(event) => setDriverForm((current) => ({ ...current, password: event.target.value }))} placeholder={editingDriverId ? 'Nueva contrasena opcional' : 'Contrasena inicial'} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-slate-900 outline-none transition focus:border-teal-500 focus:ring-4 focus:ring-teal-100" />
+            <input type="password" value={driverForm.password} onChange={(event) => setDriverForm((current) => ({ ...current, password: event.target.value }))} placeholder={editingDriverId ? 'Nueva contraseña opcional' : 'Contraseña inicial'} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-slate-900 outline-none transition focus:border-teal-500 focus:ring-4 focus:ring-teal-100" />
             <select value={driverForm.defaultRouteId} onChange={(event) => setDriverForm((current) => ({ ...current, defaultRouteId: event.target.value }))} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-slate-900 outline-none transition focus:border-teal-500 focus:ring-4 focus:ring-teal-100"><option value="">Sin ruta asignada</option>{dashboard.routes.map((route) => <option key={route.id} value={route.id}>{route.name} - {route.direction}</option>)}</select>
             <select value={driverForm.defaultVehicleId} onChange={(event) => setDriverForm((current) => ({ ...current, defaultVehicleId: event.target.value }))} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-slate-900 outline-none transition focus:border-teal-500 focus:ring-4 focus:ring-teal-100"><option value="">Sin unidad asignada</option>{dashboard.vehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.unitNumber} - {vehicle.label}{vehicle.assignedDriverNames.length > 0 ? ` (${vehicle.assignedDriverNames.join(', ')})` : ''}</option>)}</select>
             <button type="button" onClick={handleDriverSubmit} disabled={isSubmitting} className="flex min-h-11 items-center justify-center rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-slate-300">{editingDriverId ? 'Guardar cambios' : 'Crear conductor'}</button>
@@ -444,9 +447,9 @@ function AdminDashboardContent({
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="eyebrow">Unidades</p>
-              <h3 className="mt-2 font-display text-xl text-slate-900 sm:text-2xl">Gestion de unidades</h3>
+              <h3 className="mt-2 font-display text-xl text-slate-900 sm:text-2xl">Gestión de unidades</h3>
             </div>
-            {editingVehicleId ? <button type="button" onClick={() => { setEditingVehicleId(null); setVehicleForm({ unitNumber: '', label: '', status: 'available', defaultRouteId: '' }) }} className="text-sm font-semibold text-slate-500 transition hover:text-slate-800">Cancelar edicion</button> : null}
+            {editingVehicleId ? <button type="button" onClick={() => { setEditingVehicleId(null); setVehicleForm({ unitNumber: '', label: '', status: 'available', defaultRouteId: '' }) }} className="text-sm font-semibold text-slate-500 transition hover:text-slate-800">Cancelar edición</button> : null}
           </div>
           <input type="text" value={vehicleSearch} onChange={(event) => setVehicleSearch(event.target.value)} placeholder="Buscar unidad" className="mt-4 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-teal-500 focus:ring-4 focus:ring-teal-100" />
           <div className="mt-5 grid gap-4">
@@ -463,7 +466,7 @@ function AdminDashboardContent({
                   <div>
                     <p className="font-display text-lg text-slate-900">{vehicle.unitNumber}</p>
                     <p className="mt-2 text-sm text-slate-600">{vehicle.label}</p>
-                    <p className="mt-2 text-sm text-slate-500">Ruta por defecto: {vehicle.defaultRouteName ?? 'Sin configuracion'}</p>
+                    <p className="mt-2 text-sm text-slate-500">Ruta por defecto: {vehicle.defaultRouteName ?? 'Sin configuración'}</p>
                     <p className="mt-2 text-sm text-slate-500">Conductores base: {vehicle.assignedDriverNames.length > 0 ? vehicle.assignedDriverNames.join(', ') : 'Sin asignar'}</p>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -491,8 +494,23 @@ export function AdminOverview({
   session: AuthenticatedSession
   onLogout: () => void
 }) {
-  const currentTimeMs = useCurrentTime(15_000)
-  const dashboard = useAdminOperationalOverview(session.token, currentTimeMs)
+  const currentTimeMs = useCurrentTime(30_000)
+  const managementCatalog = useAdminManagementCatalog(session.token)
+  const operationalFeed = useAdminOperationalOverview(session.token)
+  const dashboard = useMemo<AdminDashboardState | undefined>(() => {
+    if (!managementCatalog || !operationalFeed) {
+      return undefined
+    }
+
+    const catalog = managementCatalog as AdminManagementCatalogState
+    const feed = operationalFeed as AdminOperationalFeed
+
+    return {
+      ...catalog,
+      overview: feed.overview,
+      events: feed.events,
+    }
+  }, [managementCatalog, operationalFeed])
 
   if (dashboard === undefined) {
     return (

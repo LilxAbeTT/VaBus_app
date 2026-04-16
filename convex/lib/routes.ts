@@ -40,7 +40,7 @@ export function getRouteImportKey(route: RouteDocument) {
   return route.importKey ?? `legacy:${route.slug}`
 }
 
-export function toRouteSummary(route: RouteDocument) {
+export function toRouteListItem(route: RouteDocument) {
   return {
     id: route._id,
     importKey: getRouteImportKey(route),
@@ -51,6 +51,12 @@ export function toRouteSummary(route: RouteDocument) {
     sourceFile: getRouteSourceFile(route),
     status: route.status,
     color: route.color,
+  }
+}
+
+export function toRouteSummary(route: RouteDocument) {
+  return {
+    ...toRouteListItem(route),
     segments: getRouteSegments(route),
   }
 }

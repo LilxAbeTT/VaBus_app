@@ -10,7 +10,7 @@ import {
   normalizeEmail,
   requireAuthenticatedSession,
 } from './lib/auth'
-import { toRouteSummary } from './lib/routes'
+import { toRouteListItem, toRouteSummary } from './lib/routes'
 import {
   getLastSignalAt,
   getOperationalStatusForService,
@@ -21,16 +21,6 @@ import {
   getOpenServices,
 } from './lib/services'
 import { recordSystemEvent } from './lib/systemEvents'
-
-function getEffectiveOperationalNowMs(nowMs: number) {
-  const serverNowMs = Date.now()
-
-  if (Math.abs(nowMs - serverNowMs) > 60_000) {
-    return serverNowMs
-  }
-
-  return nowMs
-}
 
 function assertNonEmptyValue(value: string, fieldLabel: string) {
   if (!value.trim()) {
@@ -78,7 +68,7 @@ async function ensureUniqueVehicleUnitNumber(
     .first()
 
   if (existingVehicle && existingVehicle._id !== excludedVehicleId) {
-    throw new ConvexError('Ya existe una unidad con ese numero.')
+    throw new ConvexError('Ya existe una unidad con ese número.')
   }
 }
 
@@ -108,7 +98,7 @@ async function requireAssignableVehicle(
 
   if (conflictingDriver) {
     throw new ConvexError(
-      `La unidad ya esta asignada a ${conflictingDriver.name}.`,
+      `La unidad ya está asignada a ${conflictingDriver.name}.`,
     )
   }
 
@@ -128,25 +118,345 @@ async function requireOpenServiceById(
   const service = await db.get(serviceId)
 
   if (!service || service.status === 'completed') {
-    throw new ConvexError('El servicio indicado ya no esta abierto.')
+    throw new ConvexError('El servicio indicado ya no está abierto.')
   }
 
   return service
 }
 
-export const getDashboardState = query({
+export const getOperationalOverview = query({
   args: {
     sessionToken: v.string(),
-    nowMs: v.number(),
   },
-  handler: async ({ db }, { sessionToken, nowMs }) => {
+  handler: async ({ db }, { sessionToken }) => {
+    await requireAuthenticatedSession(db, sessionToken, 'admin')
+
+    const [routes, drivers, vehicles, openServices, recentEvents] = await Promise.all([
+      db.query('routes').collect(),
+      db
+        .query('users')
+        .withIndex('by_role', (q) => q.eq('role', 'driver'))
+        .collect(),
+      db.query('vehicles').order('asc').collect(),
+      getOpenServices(db),
+      db
+        .query('systemEvents')
+        .withIndex('by_created_at')
+        .order('desc')
+        .take(16),
+    ])
+    const activeRoutes = routes.filter((route) => route.status === 'active')
+    const routeById = new Map(routes.map((route) => [route._id, route]))
+    const driverById = new Map(drivers.map((driver) => [driver._id, driver]))
+    const vehicleById = new Map(vehicles.map((vehicle) => [vehicle._id, vehicle]))
+    const operationalNowMs = Date.now()
+
+    const services = openServices.map((service) => {
+      const route = routeById.get(service.routeId)
+      const driver = driverById.get(service.driverId)
+      const vehicle = vehicleById.get(service.vehicleId)
+
+      return {
+        id: service._id,
+        routeId: service.routeId,
+        routeName: service.routeName ?? route?.name ?? 'Ruta sin catálogo activo',
+        routeDirection: service.routeDirection ?? route?.direction ?? 'Sin dirección',
+        transportType:
+          service.routeTransportType ?? route?.transportType ?? 'urbano',
+        vehicleId: service.vehicleId,
+        unitNumber: service.vehicleUnitNumber ?? vehicle?.unitNumber ?? 'Unidad',
+        vehicleLabel: service.vehicleLabel ?? vehicle?.label ?? 'Unidad activa',
+        driverId: service.driverId,
+        driverName: service.driverName ?? driver?.name ?? 'Conductor',
+        status: service.status,
+        startedAt: service.startedAt,
+        lastSignalAt: getLastSignalAt(service) ?? undefined,
+        lastSignalSource: service.lastLocationSource,
+        lastPosition: service.lastPosition,
+        operationalStatus: getOperationalStatusForService({
+          activeService: service,
+          nowMs: operationalNowMs,
+        }),
+      }
+    })
+
+    const routeSummaryMap = new Map(
+      activeRoutes.map((route) => [
+        route._id,
+        {
+          routeId: route._id,
+          routeName: route.name,
+          routeDirection: route.direction,
+          transportType: route.transportType ?? 'urbano',
+          totalServices: 0,
+          activeRecent: 0,
+          activeStale: 0,
+          probablyStopped: 0,
+          pausedServices: 0,
+        },
+      ]),
+    )
+    const totals = {
+      activeRoutes: activeRoutes.length,
+      openServices: services.length,
+      activeServices: 0,
+      pausedServices: 0,
+      activeRecent: 0,
+      activeStale: 0,
+      probablyStopped: 0,
+    }
+
+    services.forEach((service) => {
+      const currentSummary = routeSummaryMap.get(service.routeId)
+
+      if (service.status === 'active') {
+        totals.activeServices += 1
+      } else {
+        totals.pausedServices += 1
+      }
+
+      if (service.operationalStatus === 'active_recent') {
+        totals.activeRecent += 1
+      } else if (service.operationalStatus === 'active_stale') {
+        totals.activeStale += 1
+      } else {
+        totals.probablyStopped += 1
+      }
+
+      if (!currentSummary) {
+        return
+      }
+
+      currentSummary.totalServices += 1
+
+      if (service.status === 'paused') {
+        currentSummary.pausedServices += 1
+      }
+
+      if (service.operationalStatus === 'active_recent') {
+        currentSummary.activeRecent += 1
+      } else if (service.operationalStatus === 'active_stale') {
+        currentSummary.activeStale += 1
+      } else {
+        currentSummary.probablyStopped += 1
+      }
+    })
+
+    return {
+      overview: {
+        totals,
+        routes: [...routeSummaryMap.values()]
+          .filter((route) => route.totalServices > 0)
+          .sort((left, right) => left.routeName.localeCompare(right.routeName, 'es')),
+        services: services.sort((left, right) =>
+          right.startedAt.localeCompare(left.startedAt),
+        ),
+      },
+      events: recentEvents.map((event) => ({
+        id: event._id,
+        category: event.category,
+        title: event.title,
+        description: event.description,
+        actorName: event.actorName,
+        actorRole: event.actorRole,
+        targetType: event.targetType,
+        targetId: event.targetId,
+        createdAt: event.createdAt,
+      })),
+    }
+  },
+})
+
+export const getManagementCatalog = query({
+  args: {
+    sessionToken: v.string(),
+  },
+  handler: async ({ db }, { sessionToken }) => {
     const { user: admin } = await requireAuthenticatedSession(
       db,
       sessionToken,
       'admin',
     )
 
-    const effectiveNowMs = getEffectiveOperationalNowMs(nowMs)
+    const [routes, drivers, vehicles, openServices] = await Promise.all([
+      db.query('routes').collect(),
+      db
+        .query('users')
+        .withIndex('by_role', (q) => q.eq('role', 'driver'))
+        .collect(),
+      db.query('vehicles').order('asc').collect(),
+      getOpenServices(db),
+    ])
+    const activeRoutes = routes.filter((route) => route.status === 'active')
+    const serviceByDriverId = new Map(
+      openServices.map((service) => [service.driverId, service]),
+    )
+    const serviceByVehicleId = new Map(
+      openServices.map((service) => [service.vehicleId, service]),
+    )
+    const routeNameById = new Map(routes.map((route) => [route._id, route.name]))
+    const vehicleLabelById = new Map(
+      vehicles.map((vehicle) => [vehicle._id, `${vehicle.unitNumber} - ${vehicle.label}`]),
+    )
+    const routeServiceCount = new Map<Id<'routes'>, number>()
+    const assignedDriverCountByRoute = new Map<Id<'routes'>, number>()
+    const assignedVehicleCountByRoute = new Map<Id<'routes'>, number>()
+    const assignedDriverNamesByVehicle = new Map<Id<'vehicles'>, string[]>()
+
+    openServices.forEach((service) => {
+      routeServiceCount.set(
+        service.routeId,
+        (routeServiceCount.get(service.routeId) ?? 0) + 1,
+      )
+    })
+    drivers.forEach((driver) => {
+      if (driver.defaultRouteId) {
+        assignedDriverCountByRoute.set(
+          driver.defaultRouteId,
+          (assignedDriverCountByRoute.get(driver.defaultRouteId) ?? 0) + 1,
+        )
+      }
+
+      if (driver.defaultVehicleId) {
+        const assignedDrivers =
+          assignedDriverNamesByVehicle.get(driver.defaultVehicleId) ?? []
+        assignedDrivers.push(driver.name)
+        assignedDriverNamesByVehicle.set(driver.defaultVehicleId, assignedDrivers)
+      }
+    })
+    vehicles.forEach((vehicle) => {
+      if (vehicle.defaultRouteId) {
+        assignedVehicleCountByRoute.set(
+          vehicle.defaultRouteId,
+          (assignedVehicleCountByRoute.get(vehicle.defaultRouteId) ?? 0) + 1,
+        )
+      }
+    })
+
+    return {
+      admin: {
+        id: admin._id,
+        name: admin.name,
+        email: admin.email,
+        role: admin.role,
+        status: admin.status,
+      },
+      routes: activeRoutes
+        .map((route) => toRouteListItem(route))
+        .sort((left, right) => left.name.localeCompare(right.name, 'es')),
+      routeCatalog: routes
+        .map((route) => ({
+          ...toRouteListItem(route),
+          activeServiceCount: routeServiceCount.get(route._id) ?? 0,
+          assignedDriverCount: assignedDriverCountByRoute.get(route._id) ?? 0,
+          assignedVehicleCount: assignedVehicleCountByRoute.get(route._id) ?? 0,
+        }))
+        .sort((left, right) => left.name.localeCompare(right.name, 'es')),
+      drivers: drivers
+        .sort((left, right) => left.name.localeCompare(right.name, 'es'))
+        .map((driver) => {
+          const openService = serviceByDriverId.get(driver._id)
+
+          return {
+            id: driver._id,
+            name: driver.name,
+            email: driver.email,
+            status: driver.status,
+            defaultRouteId: driver.defaultRouteId,
+            defaultRouteName: driver.defaultRouteId
+              ? routeNameById.get(driver.defaultRouteId)
+              : undefined,
+            defaultVehicleId: driver.defaultVehicleId,
+            defaultVehicleLabel: driver.defaultVehicleId
+              ? vehicleLabelById.get(driver.defaultVehicleId)
+              : undefined,
+            hasOpenService: openService !== undefined,
+            currentRouteName: openService
+              ? routeNameById.get(openService.routeId)
+              : undefined,
+            currentServiceStatus: openService?.status,
+          }
+        }),
+      vehicles: vehicles
+        .sort((left, right) => left.unitNumber.localeCompare(right.unitNumber, 'es'))
+        .map((vehicle) => {
+          const openService = serviceByVehicleId.get(vehicle._id)
+
+          return {
+            id: vehicle._id,
+            unitNumber: vehicle.unitNumber,
+            label: vehicle.label,
+            status: vehicle.status,
+            defaultRouteId: vehicle.defaultRouteId,
+            defaultRouteName: vehicle.defaultRouteId
+              ? routeNameById.get(vehicle.defaultRouteId)
+              : undefined,
+            assignedDriverNames: assignedDriverNamesByVehicle.get(vehicle._id) ?? [],
+            hasOpenService: openService !== undefined,
+            currentRouteName: openService
+              ? routeNameById.get(openService.routeId)
+              : undefined,
+            currentServiceStatus: openService?.status,
+          }
+        }),
+      alerts: [
+        ...drivers
+          .filter((driver) => !driver.defaultVehicleId)
+          .map((driver) => ({
+            id: `driver-without-vehicle:${driver._id}`,
+            severity: 'warning' as const,
+            title: 'Conductor sin unidad base',
+            description: `${driver.name} no tiene unidad asignada.`,
+          })),
+        ...drivers
+          .filter((driver) => !driver.defaultRouteId)
+          .map((driver) => ({
+            id: `driver-without-route:${driver._id}`,
+            severity: 'warning' as const,
+            title: 'Conductor sin ruta base',
+            description: `${driver.name} no tiene ruta base configurada.`,
+          })),
+        ...routes
+          .filter(
+            (route) =>
+              route.status === 'draft' &&
+              ((assignedDriverCountByRoute.get(route._id) ?? 0) > 0 ||
+                (assignedVehicleCountByRoute.get(route._id) ?? 0) > 0),
+          )
+          .map((route) => ({
+            id: `draft-route-assigned:${route._id}`,
+            severity: 'warning' as const,
+            title: 'Ruta draft con asignaciones',
+            description: `${route.name} sigue asignada como ruta base aunque no está activa.`,
+          })),
+        ...vehicles
+          .filter(
+            (vehicle) =>
+              (assignedDriverNamesByVehicle.get(vehicle._id)?.length ?? 0) > 1,
+          )
+          .map((vehicle) => ({
+            id: `vehicle-duplicated:${vehicle._id}`,
+            severity: 'critical' as const,
+            title: 'Unidad asignada a múltiples conductores',
+            description: `${vehicle.unitNumber} está asignada a múltiples conductores base.`,
+          })),
+      ],
+    }
+  },
+})
+
+export const getDashboardState = query({
+  args: {
+    sessionToken: v.string(),
+  },
+  handler: async ({ db }, { sessionToken }) => {
+    const { user: admin } = await requireAuthenticatedSession(
+      db,
+      sessionToken,
+      'admin',
+    )
+    const operationalNowMs = Date.now()
+
     const [routes, drivers, vehicles, openServices] = await Promise.all([
       db.query('routes').collect(),
       db
@@ -175,8 +485,8 @@ export const getDashboardState = query({
         return {
           id: service._id,
           routeId: service.routeId,
-          routeName: service.routeName ?? route?.name ?? 'Ruta sin catalogo activo',
-          routeDirection: service.routeDirection ?? route?.direction ?? 'Sin direccion',
+        routeName: service.routeName ?? route?.name ?? 'Ruta sin catálogo activo',
+        routeDirection: service.routeDirection ?? route?.direction ?? 'Sin dirección',
           transportType:
             service.routeTransportType ?? route?.transportType ?? 'urbano',
           vehicleId: service.vehicleId,
@@ -191,7 +501,7 @@ export const getDashboardState = query({
           lastPosition: service.lastPosition,
           operationalStatus: getOperationalStatusForService({
             activeService: service,
-            nowMs: effectiveNowMs,
+            nowMs: operationalNowMs,
           }),
         }
       })
@@ -388,7 +698,7 @@ export const getDashboardState = query({
             id: `draft-route-assigned:${route._id}`,
             severity: 'warning' as const,
             title: 'Ruta draft con asignaciones',
-            description: `${route.name} sigue asignada como ruta base aunque no esta activa.`,
+            description: `${route.name} sigue asignada como ruta base aunque no está activa.`,
           })),
         ...vehicles
           .filter(
@@ -399,8 +709,8 @@ export const getDashboardState = query({
           .map((vehicle) => ({
             id: `vehicle-duplicated:${vehicle._id}`,
             severity: 'critical' as const,
-            title: 'Unidad asignada a multiples conductores',
-            description: `${vehicle.unitNumber} esta asignada a multiples conductores base.`,
+            title: 'Unidad asignada a múltiples conductores',
+            description: `${vehicle.unitNumber} está asignada a múltiples conductores base.`,
           })),
       ],
       events: recentEvents.map((event) => ({
@@ -449,14 +759,14 @@ export const createDriver = mutation({
     const passwordHash = await hashPassword(password)
 
     if (defaultRouteId) {
-      await requireActiveRoute(db, defaultRouteId, 'La ruta asignada no esta activa.')
+      await requireActiveRoute(db, defaultRouteId, 'La ruta asignada no está activa.')
     }
 
     if (defaultVehicleId) {
       await requireAssignableVehicle(
         db,
         defaultVehicleId,
-        'La unidad asignada no esta disponible.',
+        'La unidad asignada no está disponible.',
       )
     }
 
@@ -475,7 +785,7 @@ export const createDriver = mutation({
       category: 'driver',
       title: 'Conductor creado',
       description: `${name.trim()} fue dado de alta en el panel admin.`,
-      actorName: 'Administracion',
+      actorName: 'Administración',
       actorRole: 'admin',
       targetType: 'driver',
       targetId: driverId,
@@ -543,14 +853,14 @@ export const updateDriver = mutation({
     }
 
     if (defaultRouteId) {
-      await requireActiveRoute(db, defaultRouteId, 'La ruta asignada no esta activa.')
+      await requireActiveRoute(db, defaultRouteId, 'La ruta asignada no está activa.')
     }
 
     if (defaultVehicleId) {
       await requireAssignableVehicle(
         db,
         defaultVehicleId,
-        'La unidad asignada no esta disponible.',
+        'La unidad asignada no está disponible.',
         driverId,
       )
     }
@@ -577,7 +887,7 @@ export const updateDriver = mutation({
       category: 'driver',
       title: 'Conductor actualizado',
       description: `${name.trim()} fue actualizado desde el panel admin.`,
-      actorName: 'Administracion',
+      actorName: 'Administración',
       actorRole: 'admin',
       targetType: 'driver',
       targetId: driverId,
@@ -604,12 +914,12 @@ export const createVehicle = mutation({
     await requireAuthenticatedSession(db, sessionToken, 'admin')
 
     const normalizedUnitNumber = unitNumber.trim()
-    assertNonEmptyValue(normalizedUnitNumber, 'El numero de unidad')
+    assertNonEmptyValue(normalizedUnitNumber, 'El número de unidad')
     assertNonEmptyValue(label, 'La etiqueta de la unidad')
     await ensureUniqueVehicleUnitNumber(db, normalizedUnitNumber)
 
     if (defaultRouteId) {
-      await requireActiveRoute(db, defaultRouteId, 'La ruta por defecto no esta activa.')
+      await requireActiveRoute(db, defaultRouteId, 'La ruta por defecto no está activa.')
     }
 
     const vehicleId = await db.insert('vehicles', {
@@ -624,7 +934,7 @@ export const createVehicle = mutation({
       category: 'vehicle',
       title: 'Unidad creada',
       description: `${normalizedUnitNumber} fue registrada en el panel admin.`,
-      actorName: 'Administracion',
+      actorName: 'Administración',
       actorRole: 'admin',
       targetType: 'vehicle',
       targetId: vehicleId,
@@ -670,12 +980,12 @@ export const updateVehicle = mutation({
     }
 
     const normalizedUnitNumber = unitNumber.trim()
-    assertNonEmptyValue(normalizedUnitNumber, 'El numero de unidad')
+    assertNonEmptyValue(normalizedUnitNumber, 'El número de unidad')
     assertNonEmptyValue(label, 'La etiqueta de la unidad')
     await ensureUniqueVehicleUnitNumber(db, normalizedUnitNumber, vehicleId)
 
     if (defaultRouteId) {
-      await requireActiveRoute(db, defaultRouteId, 'La ruta por defecto no esta activa.')
+      await requireActiveRoute(db, defaultRouteId, 'La ruta por defecto no está activa.')
     }
 
     if (!openService && status === 'in_service') {
@@ -710,7 +1020,7 @@ export const updateVehicle = mutation({
       category: 'vehicle',
       title: 'Unidad actualizada',
       description: `${normalizedUnitNumber} fue actualizada desde el panel admin.`,
-      actorName: 'Administracion',
+      actorName: 'Administración',
       actorRole: 'admin',
       targetType: 'vehicle',
       targetId: vehicleId,
@@ -742,8 +1052,8 @@ export const pauseService = mutation({
     await recordSystemEvent(db, {
       category: 'service',
       title: 'Servicio pausado',
-      description: `${service.vehicleUnitNumber ?? 'Unidad'} en ${service.routeName ?? 'ruta activa'} fue pausado por administracion.`,
-      actorName: 'Administracion',
+      description: `${service.vehicleUnitNumber ?? 'Unidad'} en ${service.routeName ?? 'ruta activa'} fue pausado por administración.`,
+      actorName: 'Administración',
       actorRole: 'admin',
       targetType: 'service',
       targetId: serviceId,
@@ -776,8 +1086,8 @@ export const resumeService = mutation({
     await recordSystemEvent(db, {
       category: 'service',
       title: 'Servicio reanudado',
-      description: `${service.vehicleUnitNumber ?? 'Unidad'} en ${service.routeName ?? 'ruta activa'} fue reanudado por administracion.`,
-      actorName: 'Administracion',
+      description: `${service.vehicleUnitNumber ?? 'Unidad'} en ${service.routeName ?? 'ruta activa'} fue reanudado por administración.`,
+      actorName: 'Administración',
       actorRole: 'admin',
       targetType: 'service',
       targetId: serviceId,
@@ -813,8 +1123,8 @@ export const finishService = mutation({
     await recordSystemEvent(db, {
       category: 'service',
       title: 'Servicio finalizado',
-      description: `${service.vehicleUnitNumber ?? 'Unidad'} en ${service.routeName ?? 'ruta activa'} fue finalizado por administracion.`,
-      actorName: 'Administracion',
+      description: `${service.vehicleUnitNumber ?? 'Unidad'} en ${service.routeName ?? 'ruta activa'} fue finalizado por administración.`,
+      actorName: 'Administración',
       actorRole: 'admin',
       targetType: 'service',
       targetId: serviceId,
@@ -855,7 +1165,7 @@ export const setDriverStatus = mutation({
       category: 'driver',
       title: status === 'active' ? 'Conductor activado' : 'Conductor inactivado',
       description: `${driver.name} fue marcado como ${status === 'active' ? 'activo' : 'inactivo'} desde el panel admin.`,
-      actorName: 'Administracion',
+      actorName: 'Administración',
       actorRole: 'admin',
       targetType: 'driver',
       targetId: driverId,
@@ -899,7 +1209,7 @@ export const setVehicleStatus = mutation({
           ? 'Unidad disponible'
           : 'Unidad en mantenimiento',
       description: `${vehicle.unitNumber} fue marcada como ${status === 'available' ? 'disponible' : 'mantenimiento'} desde el panel admin.`,
-      actorName: 'Administracion',
+      actorName: 'Administración',
       actorRole: 'admin',
       targetType: 'vehicle',
       targetId: vehicleId,
@@ -965,7 +1275,7 @@ export const setRouteStatus = mutation({
       category: 'route',
       title: status === 'active' ? 'Ruta activada' : 'Ruta desactivada',
       description: `${route.name} fue marcada como ${status === 'active' ? 'activa' : 'draft'} desde el panel admin.`,
-      actorName: 'Administracion',
+      actorName: 'Administración',
       actorRole: 'admin',
       targetType: 'route',
       targetId: routeId,

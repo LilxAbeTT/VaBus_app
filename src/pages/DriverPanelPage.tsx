@@ -43,7 +43,7 @@ export function DriverPanelPage() {
   if (!convexUrl) {
     return (
       <DriverAuthEmptyState
-        title="Convex aun no esta configurado"
+        title="Convex aún no está configurado"
         description="Inicia Convex para habilitar el acceso del conductor."
       />
     )
@@ -56,8 +56,8 @@ export function DriverPanelPage() {
   if (verifiedSession === undefined) {
     return (
       <DriverAuthEmptyState
-        title="Validando sesion"
-        description="Comprobando que la sesion del conductor siga activa."
+        title="Validando sesión"
+        description="Comprobando que la sesión del conductor siga activa."
       />
     )
   }

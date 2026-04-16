@@ -43,7 +43,7 @@ export function AdminDashboardPage() {
   if (!convexUrl) {
     return (
       <AdminAuthEmptyState
-        title="Convex aun no esta configurado"
+        title="Convex aún no está configurado"
         description="Inicia Convex para habilitar el acceso administrativo."
       />
     )
@@ -56,8 +56,8 @@ export function AdminDashboardPage() {
   if (verifiedSession === undefined) {
     return (
       <AdminAuthEmptyState
-        title="Validando sesion"
-        description="Comprobando que la sesion administrativa siga activa."
+        title="Validando sesión"
+        description="Comprobando que la sesión administrativa siga activa."
       />
     )
   }

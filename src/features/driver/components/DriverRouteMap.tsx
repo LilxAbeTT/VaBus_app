@@ -32,6 +32,8 @@ export function DriverRouteMap({
   const mapRef = useRef<L.Map | null>(null)
   const routeLayerRef = useRef<L.LayerGroup | null>(null)
   const markerLayerRef = useRef<L.LayerGroup | null>(null)
+  const primaryMarkerRef = useRef<L.CircleMarker | null>(null)
+  const sharedMarkerRef = useRef<L.CircleMarker | null>(null)
   const lastFittedRouteIdRef = useRef<string | null>(null)
 
   const primaryPosition = livePosition ?? lastSharedPosition ?? null
@@ -68,20 +70,19 @@ export function DriverRouteMap({
       mapRef.current = null
       routeLayerRef.current = null
       markerLayerRef.current = null
+      primaryMarkerRef.current = null
+      sharedMarkerRef.current = null
     }
   }, [])
 
   useEffect(() => {
-    const map = mapRef.current
     const routeLayer = routeLayerRef.current
-    const markerLayer = markerLayerRef.current
 
-    if (!map || !routeLayer || !markerLayer) {
+    if (!routeLayer) {
       return
     }
 
     routeLayer.clearLayers()
-    markerLayer.clearLayers()
 
     if (!route) {
       return
@@ -100,20 +101,53 @@ export function DriverRouteMap({
         opacity: 0.88,
       }).addTo(routeLayer)
     })
+  }, [route])
 
-    const referencePosition =
-      primaryPosition ?? route.segments[0]?.[0] ?? null
+  useEffect(() => {
+    const markerLayer = markerLayerRef.current
+
+    if (!markerLayer) {
+      return
+    }
+
+    if (!route) {
+      if (primaryMarkerRef.current) {
+        markerLayer.removeLayer(primaryMarkerRef.current)
+        primaryMarkerRef.current = null
+      }
+
+      if (sharedMarkerRef.current) {
+        markerLayer.removeLayer(sharedMarkerRef.current)
+        sharedMarkerRef.current = null
+      }
+
+      return
+    }
+
+    const referencePosition = primaryPosition ?? route.segments[0]?.[0] ?? null
 
     if (referencePosition) {
-      L.circleMarker([referencePosition.lat, referencePosition.lng], {
-        radius: 9,
-        color: '#1d4ed8',
-        fillColor: '#60a5fa',
-        fillOpacity: 1,
-        weight: 3,
-      })
-        .addTo(markerLayer)
-        .bindPopup('Tu ubicacion actual')
+      const primaryLatLng: L.LatLngExpression = [
+        referencePosition.lat,
+        referencePosition.lng,
+      ]
+
+      if (!primaryMarkerRef.current) {
+        primaryMarkerRef.current = L.circleMarker(primaryLatLng, {
+          radius: 9,
+          color: '#1d4ed8',
+          fillColor: '#60a5fa',
+          fillOpacity: 1,
+          weight: 3,
+        })
+          .addTo(markerLayer)
+          .bindPopup('Tu ubicacion actual')
+      } else {
+        primaryMarkerRef.current.setLatLng(primaryLatLng)
+      }
+    } else if (primaryMarkerRef.current) {
+      markerLayer.removeLayer(primaryMarkerRef.current)
+      primaryMarkerRef.current = null
     }
 
     if (
@@ -121,15 +155,35 @@ export function DriverRouteMap({
       primaryPosition &&
       !areCoordinatesEqual(lastSharedPosition, primaryPosition)
     ) {
-      L.circleMarker([lastSharedPosition.lat, lastSharedPosition.lng], {
-        radius: 6,
-        color: '#0f766e',
-        fillColor: '#2dd4bf',
-        fillOpacity: 0.8,
-        weight: 2,
-      })
-        .addTo(markerLayer)
-        .bindPopup('Ultima ubicacion compartida')
+      const sharedLatLng: L.LatLngExpression = [
+        lastSharedPosition.lat,
+        lastSharedPosition.lng,
+      ]
+
+      if (!sharedMarkerRef.current) {
+        sharedMarkerRef.current = L.circleMarker(sharedLatLng, {
+          radius: 6,
+          color: '#0f766e',
+          fillColor: '#2dd4bf',
+          fillOpacity: 0.8,
+          weight: 2,
+        })
+          .addTo(markerLayer)
+          .bindPopup('Ultima ubicacion compartida')
+      } else {
+        sharedMarkerRef.current.setLatLng(sharedLatLng)
+      }
+    } else if (sharedMarkerRef.current) {
+      markerLayer.removeLayer(sharedMarkerRef.current)
+      sharedMarkerRef.current = null
+    }
+  }, [lastSharedPosition, primaryPosition, route])
+
+  useEffect(() => {
+    const map = mapRef.current
+
+    if (!map || !route) {
+      return
     }
 
     if (lastFittedRouteIdRef.current !== route.id && routeBoundsPoints.length > 0) {
@@ -140,7 +194,7 @@ export function DriverRouteMap({
       })
       lastFittedRouteIdRef.current = route.id
     }
-  }, [lastSharedPosition, primaryPosition, route, routeBoundsPoints])
+  }, [route, routeBoundsPoints])
 
   return (
     <div className="overflow-hidden rounded-[1.6rem] border border-slate-200 bg-white">

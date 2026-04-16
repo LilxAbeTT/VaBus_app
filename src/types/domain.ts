@@ -48,6 +48,18 @@ export interface BusRoute {
   segments: Coordinates[][]
 }
 
+export interface BusRouteListItem {
+  id: string
+  importKey: string
+  slug: string
+  name: string
+  direction: string
+  transportType: TransportType
+  sourceFile: string
+  status: RouteStatus
+  color: string
+}
+
 export interface Vehicle {
   id: string
   unitNumber: string
@@ -113,6 +125,13 @@ export interface DriverPanelState {
   availableRoutes: BusRoute[]
   preferredRouteId?: string
   currentService: DriverPanelCurrentService | null
+}
+
+export interface DriverPanelSetupState {
+  driver: AppUser | null
+  vehicle: Vehicle | null
+  availableRoutes: BusRoute[]
+  preferredRouteId?: string
 }
 
 export interface AdminOperationalService {
@@ -187,7 +206,7 @@ export interface AdminManagedVehicle {
   currentServiceStatus?: ActiveServiceStatus
 }
 
-export interface AdminRouteCatalogItem extends BusRoute {
+export interface AdminRouteCatalogItem extends BusRouteListItem {
   activeServiceCount: number
   assignedDriverCount: number
   assignedVehicleCount: number
@@ -203,11 +222,25 @@ export interface AdminOperationalAlert {
 export interface AdminDashboardState {
   admin: AppUser
   overview: AdminOperationalOverview
-  routes: BusRoute[]
+  routes: BusRouteListItem[]
   routeCatalog: AdminRouteCatalogItem[]
   drivers: AdminManagedDriver[]
   vehicles: AdminManagedVehicle[]
   alerts: AdminOperationalAlert[]
+  events: AdminSystemEvent[]
+}
+
+export interface AdminManagementCatalogState {
+  admin: AppUser
+  routes: BusRouteListItem[]
+  routeCatalog: AdminRouteCatalogItem[]
+  drivers: AdminManagedDriver[]
+  vehicles: AdminManagedVehicle[]
+  alerts: AdminOperationalAlert[]
+}
+
+export interface AdminOperationalFeed {
+  overview: AdminOperationalOverview
   events: AdminSystemEvent[]
 }
 

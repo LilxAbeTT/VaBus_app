@@ -232,6 +232,10 @@ function PassengerMapContent({
   const selectedRouteDistanceMeters = selectedRoute
     ? routeDistanceById.get(selectedRoute.id) ?? null
     : null
+  const routeBoundsPoints = useMemo(
+    () => getRouteBoundsPoints(selectedRoute ? [selectedRoute] : displayedRoutes),
+    [displayedRoutes, selectedRoute],
+  )
   const routeInfoRoute =
     routes.find((route) => route.id === routeInfoRouteId) ?? null
   const visibleVehiclesCount = selectedRoute
@@ -248,6 +252,7 @@ function PassengerMapContent({
   const vehicleLayerRef = useRef<L.LayerGroup | null>(null)
   const userLayerRef = useRef<L.LayerGroup | null>(null)
   const vehicleMarkerByIdRef = useRef(new Map<string, L.CircleMarker>())
+  const selectedVehicleHighlightRef = useRef<L.Circle | null>(null)
   const didFitInitialViewRef = useRef(false)
   const lastFittedViewKeyRef = useRef<string | null>(null)
 
@@ -337,6 +342,7 @@ function PassengerMapContent({
       return
     }
 
+    const vehicleMarkerById = vehicleMarkerByIdRef.current
     const map = L.map(mapContainerRef.current, {
       scrollWheelZoom: false,
       zoomControl: false,
@@ -362,27 +368,19 @@ function PassengerMapContent({
       routeLayerRef.current = null
       vehicleLayerRef.current = null
       userLayerRef.current = null
+      vehicleMarkerById.clear()
+      selectedVehicleHighlightRef.current = null
     }
   }, [])
 
   useEffect(() => {
-    const map = mapRef.current
     const routeLayer = routeLayerRef.current
-    const vehicleLayer = vehicleLayerRef.current
-    const userLayer = userLayerRef.current
 
-    if (!map || !routeLayer || !vehicleLayer || !userLayer) {
+    if (!routeLayer) {
       return
     }
 
     routeLayer.clearLayers()
-    vehicleLayer.clearLayers()
-    userLayer.clearLayers()
-    vehicleMarkerByIdRef.current.clear()
-
-    const routeBoundsPoints = getRouteBoundsPoints(
-      selectedRoute ? [selectedRoute] : displayedRoutes,
-    )
 
     displayedRoutes.forEach((route) => {
       const isSelectedRoute = route.id === selectedRoute?.id
@@ -404,46 +402,103 @@ function PassengerMapContent({
           .bindPopup(route.name)
       })
     })
+  }, [displayedRoutes, selectedRoute])
+
+  useEffect(() => {
+    const vehicleLayer = vehicleLayerRef.current
+
+    if (!vehicleLayer) {
+      return
+    }
+
+    const markerById = vehicleMarkerByIdRef.current
+    const nextVehicleIds = new Set(displayedVehicles.map((vehicle) => vehicle.id))
+
+    markerById.forEach((marker, vehicleId) => {
+      if (!nextVehicleIds.has(vehicleId)) {
+        vehicleLayer.removeLayer(marker)
+        markerById.delete(vehicleId)
+      }
+    })
 
     displayedVehicles.forEach((vehicle) => {
       const isSelectedVehicle = vehicle.id === selectedVehicleId
-      const marker = L.circleMarker(
-        [vehicle.position.lat, vehicle.position.lng],
-        isSelectedVehicle
-          ? {
-              ...getMarkerStyle(vehicle.operationalStatus),
-              radius: 14,
-              weight: 4,
-              color: '#0f172a',
-              fillOpacity: 1,
-            }
-          : getMarkerStyle(vehicle.operationalStatus),
-      )
+      const markerStyle = isSelectedVehicle
+        ? {
+            ...getMarkerStyle(vehicle.operationalStatus),
+            radius: 14,
+            weight: 4,
+            color: '#0f172a',
+            fillOpacity: 1,
+          }
+        : getMarkerStyle(vehicle.operationalStatus)
+      const popupContent = `<strong>${vehicle.unitNumber}</strong><br/>${vehicle.routeName}<br/>${getOperationalStatusLabel(vehicle.operationalStatus)}<br/>Actualizado: ${formatLastUpdate(vehicle.lastUpdate)}`
+      const vehicleLatLng: L.LatLngExpression = [
+        vehicle.position.lat,
+        vehicle.position.lng,
+      ]
+      let marker = markerById.get(vehicle.id)
 
-      marker
-        .addTo(vehicleLayer)
-        .bindPopup(
-          `<strong>${vehicle.unitNumber}</strong><br/>${vehicle.routeName}<br/>${getOperationalStatusLabel(vehicle.operationalStatus)}<br/>Actualizado: ${formatLastUpdate(vehicle.lastUpdate)}`,
-        )
-        .on('click', () => handleVehicleMarkerClick(vehicle.id))
+      if (!marker) {
+        marker = L.circleMarker(vehicleLatLng, markerStyle)
+          .addTo(vehicleLayer)
+          .bindPopup(popupContent)
+          .on('click', () => handleVehicleMarkerClick(vehicle.id))
+        markerById.set(vehicle.id, marker)
+      } else {
+        marker.setLatLng(vehicleLatLng)
+        marker.setStyle(markerStyle)
+        marker.setPopupContent(popupContent)
+      }
 
-      vehicleMarkerByIdRef.current.set(vehicle.id, marker)
+      if (isSelectedVehicle && marker) {
+        marker.bringToFront()
 
-      if (isSelectedVehicle) {
-        L.circle([vehicle.position.lat, vehicle.position.lng], {
+        if (!marker.isPopupOpen()) {
+          marker.openPopup()
+        }
+      } else if (marker?.isPopupOpen()) {
+        marker.closePopup()
+      }
+    })
+
+    const selectedVehicle =
+      displayedVehicles.find((vehicle) => vehicle.id === selectedVehicleId) ?? null
+
+    if (selectedVehicle) {
+      const selectedLatLng: L.LatLngExpression = [
+        selectedVehicle.position.lat,
+        selectedVehicle.position.lng,
+      ]
+
+      if (!selectedVehicleHighlightRef.current) {
+        selectedVehicleHighlightRef.current = L.circle(selectedLatLng, {
           radius: 85,
           color: '#0f172a',
           fillColor: '#cbd5f5',
           fillOpacity: 0.1,
           weight: 1.5,
         }).addTo(vehicleLayer)
+      } else {
+        selectedVehicleHighlightRef.current.setLatLng(selectedLatLng)
       }
 
-      if (isSelectedVehicle) {
-        marker.bringToFront()
-        marker.openPopup()
-      }
-    })
+      selectedVehicleHighlightRef.current.bringToBack()
+      markerById.get(selectedVehicle.id)?.bringToFront()
+    } else if (selectedVehicleHighlightRef.current) {
+      vehicleLayer.removeLayer(selectedVehicleHighlightRef.current)
+      selectedVehicleHighlightRef.current = null
+    }
+  }, [displayedVehicles, selectedVehicleId])
+
+  useEffect(() => {
+    const userLayer = userLayerRef.current
+
+    if (!userLayer) {
+      return
+    }
+
+    userLayer.clearLayers()
 
     if (userPosition) {
       const userLatLng: [number, number] = [userPosition.lat, userPosition.lng]
@@ -456,7 +511,7 @@ function PassengerMapContent({
         weight: 3,
       })
         .addTo(userLayer)
-        .bindPopup('Tu ubicacion actual')
+        .bindPopup('Tu ubicación actual')
 
       if (accuracyMeters && accuracyMeters > 0) {
         L.circle(userLatLng, {
@@ -467,6 +522,14 @@ function PassengerMapContent({
           weight: 1,
         }).addTo(userLayer)
       }
+    }
+  }, [accuracyMeters, userPosition])
+
+  useEffect(() => {
+    const map = mapRef.current
+
+    if (!map) {
+      return
     }
 
     const viewKey = selectedRoute?.id ?? `transport:${activeTransportType}`
@@ -490,10 +553,8 @@ function PassengerMapContent({
       lastFittedViewKeyRef.current = viewKey
     }
   }, [
-    accuracyMeters,
     activeTransportType,
-    displayedRoutes,
-    displayedVehicles,
+    routeBoundsPoints,
     selectedRoute,
     selectedVehicleId,
     selectedVehicleSummary,
@@ -521,7 +582,7 @@ function PassengerMapContent({
     return (
       <PassengerMapEmptyState
         title="Cargando mapa"
-        description="Recuperando la ultima ruta seleccionada para mostrar la vista del pasajero."
+        description="Recuperando la última ruta seleccionada para mostrar la vista del pasajero."
       />
     )
   }
@@ -563,8 +624,8 @@ function PassengerMapContent({
                     type="button"
                     onClick={() => setCenterOnUserRequestCount((value) => value + 1)}
                     className="relative flex h-11 w-11 items-center justify-center rounded-xl border border-sky-200 bg-white text-sky-700 shadow-[0_14px_28px_-24px_rgba(15,23,42,0.6)] backdrop-blur transition hover:border-sky-300"
-                    aria-label="Ir a mi ubicacion"
-                    title="Ir a mi ubicacion"
+                    aria-label="Ir a mi ubicación"
+                    title="Ir a mi ubicación"
                   >
                     <LocationTargetIcon />
                   </button>
@@ -636,7 +697,7 @@ function PassengerMapContent({
                             </button>
                           ) : null}
                           <span className="inline-flex min-h-10 items-center rounded-full bg-slate-100 px-3 text-xs font-semibold text-slate-600">
-                            Ultima senal: {formatLastUpdate(selectedVehicleSummary.lastUpdate)}
+                            Última señal: {formatLastUpdate(selectedVehicleSummary.lastUpdate)}
                           </span>
                         </div>
                       </>
@@ -736,7 +797,7 @@ export function PassengerMapView() {
   if (!convexUrl) {
     return (
       <PassengerMapEmptyState
-        title="Convex aun no esta configurado"
+        title="Convex aún no está configurado"
         description="Inicia Convex con un despliegue local para cargar la URL del backend en Vite y habilitar el mapa con datos reales."
       />
     )

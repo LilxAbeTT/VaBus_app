@@ -67,39 +67,39 @@ function readCurrentPosition(options: PositionOptions) {
 function getPermissionRequestErrorMessage(error: GeolocationPositionError) {
   switch (error.code) {
     case error.PERMISSION_DENIED:
-      return 'El permiso de ubicacion fue denegado por el navegador.'
+      return 'El permiso de ubicación fue denegado por el navegador.'
     case error.TIMEOUT:
-      return 'No se pudo confirmar el permiso con una lectura rapida. Reintenta cuando mantengas la pestana visible o usa el modo manual.'
+      return 'No se pudo confirmar el permiso con una lectura rápida. Reintenta cuando mantengas la pestaña visible o usa el modo manual.'
     case error.POSITION_UNAVAILABLE:
-      return 'El navegador no pudo confirmar la ubicacion al pedir permiso. Reintenta o usa el modo manual.'
+      return 'El navegador no pudo confirmar la ubicación al pedir permiso. Reintenta o usa el modo manual.'
     default:
-      return 'Ocurrio un error inesperado al solicitar permiso de ubicacion.'
+      return 'Ocurrió un error inesperado al solicitar permiso de ubicación.'
   }
 }
 
 function getInitialAcquisitionErrorMessage(error: GeolocationPositionError) {
   switch (error.code) {
     case error.PERMISSION_DENIED:
-      return 'El permiso de ubicacion fue denegado por el navegador.'
+      return 'El permiso de ubicación fue denegado por el navegador.'
     case error.TIMEOUT:
-      return 'La primera ubicacion tardo demasiado en llegar. Reintenta el arranque o usa el modo manual.'
+      return 'La primera ubicación tardó demasiado en llegar. Reintenta el arranque o usa el modo manual.'
     case error.POSITION_UNAVAILABLE:
-      return 'No fue posible obtener una primera ubicacion valida. Reintenta el arranque o usa el modo manual.'
+      return 'No fue posible obtener una primera ubicación válida. Reintenta el arranque o usa el modo manual.'
     default:
-      return 'Ocurrio un error inesperado al obtener la primera ubicacion.'
+      return 'Ocurrió un error inesperado al obtener la primera ubicación.'
   }
 }
 
 function getContinuousTrackingErrorMessage(error: GeolocationPositionError) {
   switch (error.code) {
     case error.PERMISSION_DENIED:
-      return 'El permiso de ubicacion fue revocado mientras el tracking estaba activo.'
+      return 'El permiso de ubicación fue revocado mientras el tracking estaba activo.'
     case error.TIMEOUT:
-      return 'Una lectura puntual tardo demasiado, pero el navegador sigue esperando nuevas senales.'
+      return 'Una lectura puntual tardó demasiado, pero el navegador sigue esperando nuevas señales.'
     case error.POSITION_UNAVAILABLE:
-      return 'Se perdio la senal de ubicacion del dispositivo. Reintenta el tracking o usa el modo manual.'
+      return 'Se perdió la señal de ubicación del dispositivo. Reintenta el tracking o usa el modo manual.'
     default:
-      return 'Ocurrio un error inesperado durante el tracking continuo.'
+      return 'Ocurrió un error inesperado durante el tracking continuo.'
   }
 }
 
@@ -237,14 +237,14 @@ export function useBrowserLocationTracking(): DriverLocationTrackingHookResult {
         'error',
         error instanceof Error
           ? error.message
-          : 'No fue posible enviar la ubicacion real a Convex.',
+          : 'No fue posible enviar la ubicación real a Convex.',
       )
       return {
         accepted: false,
         rejectionMessage:
           error instanceof Error
             ? error.message
-            : 'No fue posible enviar la ubicacion real a Convex.',
+            : 'No fue posible enviar la ubicación real a Convex.',
       }
     } finally {
       isSendingRef.current = false
@@ -296,7 +296,7 @@ export function useBrowserLocationTracking(): DriverLocationTrackingHookResult {
       permissionStateRef.current = 'unsupported'
       setTrackingStatus('error')
       setTrackingError(
-        'Este navegador no soporta geolocalizacion para seguimiento real.',
+        'Este navegador no soporta geolocalización para seguimiento real.',
       )
       return false
     }
@@ -333,7 +333,7 @@ export function useBrowserLocationTracking(): DriverLocationTrackingHookResult {
       if (!isGeolocationPositionError(error)) {
         setTrackingStatus('stopped')
         setTrackingError(
-          'Ocurrio un error inesperado al solicitar permiso de ubicacion.',
+          'Ocurrió un error inesperado al solicitar permiso de ubicación.',
         )
         return false
       }
@@ -418,7 +418,7 @@ export function useBrowserLocationTracking(): DriverLocationTrackingHookResult {
       setPermissionState('unsupported')
       setTrackingStatus('error')
       setTrackingError(
-        'Este navegador no soporta geolocalizacion para seguimiento real.',
+        'Este navegador no soporta geolocalización para seguimiento real.',
       )
       return
     }
@@ -426,7 +426,7 @@ export function useBrowserLocationTracking(): DriverLocationTrackingHookResult {
     if (permissionStateRef.current !== 'granted') {
       setTrackingStatus('stopped')
       setTrackingError(
-        'Solicita permiso de ubicacion antes de iniciar el tracking real.',
+        'Solicita permiso de ubicación antes de iniciar el tracking real.',
       )
       return
     }
@@ -466,7 +466,7 @@ export function useBrowserLocationTracking(): DriverLocationTrackingHookResult {
           failTracking(
             'signal_timeout',
             initialDelivery.rejectionMessage ??
-              'No fue posible validar una primera ubicacion confiable. Reintenta el tracking o usa el modo manual.',
+              'No fue posible validar una primera ubicación confiable. Reintenta el tracking o usa el modo manual.',
           )
           return
         }
@@ -511,7 +511,7 @@ export function useBrowserLocationTracking(): DriverLocationTrackingHookResult {
         if (!isGeolocationPositionError(error)) {
           failTracking(
             'error',
-            'Ocurrio un error inesperado al iniciar el tracking real.',
+            'Ocurrió un error inesperado al iniciar el tracking real.',
           )
           return
         }

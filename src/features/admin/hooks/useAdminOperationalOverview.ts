@@ -3,10 +3,8 @@ import { api } from '../../../../convex/_generated/api'
 
 export function useAdminOperationalOverview(
   sessionToken: string,
-  nowMs: number,
 ) {
-  return useQuery(api.admin.getDashboardState, {
+  return useQuery(api.admin.getOperationalOverview, {
     sessionToken,
-    nowMs,
   })
 }

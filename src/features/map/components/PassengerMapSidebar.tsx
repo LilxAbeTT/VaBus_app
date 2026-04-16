@@ -188,7 +188,7 @@ export function PassengerMapSidebar({
           <div>
             <span className="inline-flex items-center gap-2 rounded-full border border-teal-200 bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-teal-700 shadow-sm">
               <SparkIcon />
-              {hasTransportTypeFilter ? 'Ruta mas cercana' : 'Ruta sugerida'}
+              {hasTransportTypeFilter ? 'Ruta más cercana' : 'Ruta sugerida'}
             </span>
             <p className="mt-3 font-display text-2xl text-slate-900">
               {hasRecommendedRoute
@@ -214,7 +214,7 @@ export function PassengerMapSidebar({
                   Distancia
                 </p>
                 <p className="truncate text-sm font-semibold text-slate-900">
-                  {recommendedDistanceLabel ?? 'Calculando cercania'}
+                  {recommendedDistanceLabel ?? 'Calculando cercanía'}
                 </p>
               </div>
             </div>
@@ -252,7 +252,7 @@ export function PassengerMapSidebar({
             className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-teal-700"
           >
             <LocationIcon />
-            Activar ubicacion
+            Activar ubicación
           </button>
         ) : null}
       </div>
@@ -354,8 +354,8 @@ export function PassengerMapSidebar({
                   type="button"
                   onClick={() => onShowRouteInfo(route.id)}
                   className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
-                  aria-label={`Ver informacion de ${route.name}`}
-                  title="Informacion de ruta"
+                  aria-label={`Ver información de ${route.name}`}
+                  title="Información de ruta"
                 >
                   <InfoIcon />
                 </button>

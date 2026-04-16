@@ -18,7 +18,7 @@ export async function hashPassword(password: string) {
   const normalizedPassword = password.trim()
 
   if (normalizedPassword.length < 8) {
-    throw new ConvexError('La contrasena debe tener al menos 8 caracteres.')
+    throw new ConvexError('La contraseña debe tener al menos 8 caracteres.')
   }
 
   const payload = new TextEncoder().encode(normalizedPassword)
@@ -98,7 +98,7 @@ export async function requireAuthenticatedSession(
   )
 
   if (!sessionWithUser) {
-    throw new ConvexError('La sesion ya no es valida. Ingresa de nuevo.')
+    throw new ConvexError('La sesión ya no es válida. Ingresa de nuevo.')
   }
 
   return sessionWithUser
@@ -109,7 +109,7 @@ export async function createUserSession(
   user: Doc<'users'>,
 ) {
   if (user.role !== 'driver' && user.role !== 'admin') {
-    throw new ConvexError('Este usuario no puede iniciar sesion.')
+    throw new ConvexError('Este usuario no puede iniciar sesión.')
   }
 
   const existingSessions = await db
