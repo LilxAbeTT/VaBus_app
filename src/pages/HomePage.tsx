@@ -15,26 +15,6 @@ const driverAccess = {
   actionLabel: 'Entrar como conductor',
 }
 
-function MapPinIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5">
-      <path
-        d="M12 21s6-5.33 6-11a6 6 0 1 0-12 0c0 5.67 6 11 6 11Z"
-        fill="currentColor"
-        opacity="0.18"
-      />
-      <path
-        d="M12 21s6-5.33 6-11a6 6 0 1 0-12 0c0 5.67 6 11 6 11Zm0-8.25a2.75 2.75 0 1 1 0-5.5a2.75 2.75 0 0 1 0 5.5Z"
-        fill="none"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.7"
-      />
-    </svg>
-  )
-}
-
 function BusIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5">

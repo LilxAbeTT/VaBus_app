@@ -36,7 +36,6 @@ import {
   getFeaturedVehicle,
   getLocationStatusCopy,
   getMarkerStyle,
-  getNearbyRoutesCount,
   getRecommendedRouteEntry,
   getRouteBoundsPoints,
   getRouteGroups,
@@ -241,10 +240,6 @@ function PassengerMapContent({
   const activeRoutesCount = filteredActiveRouteGroup?.routes.filter(
     (route) => (vehicleStatsByRoute.get(route.id)?.visible ?? 0) > 0,
   ).length
-  const nearbyRoutesCount = getNearbyRoutesCount(
-    filteredActiveRouteGroup?.routes ?? [],
-    routeDistanceById,
-  )
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
   const mapPanelRef = useRef<HTMLElement | null>(null)
@@ -535,17 +530,10 @@ function PassengerMapContent({
     <>
       <section className="space-y-3 sm:space-y-4">
         <PassengerMapHeader
-          recommendedRoute={recommendedRoute}
           selectedRouteName={selectedRoute?.name ?? null}
           visibleVehiclesCount={visibleVehiclesCount}
           activeRoutesCount={activeRoutesCount}
-          nearbyRoutesCount={nearbyRoutesCount}
           onOpenRoutes={() => setRoutePickerOpen(true)}
-          onFocusRecommended={() => {
-            if (recommendedRoute) {
-              focusRouteAndRevealMap(recommendedRoute.route.id)
-            }
-          }}
         />
 
         <section className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_320px] xl:items-start">

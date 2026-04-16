@@ -1,5 +1,4 @@
 import { Link } from 'react-router'
-import type { PassengerRouteDistanceEntry } from './passengerMapViewUtils'
 
 function RouteListIcon() {
   return (
@@ -23,39 +22,16 @@ function RouteListIcon() {
   )
 }
 
-function SparkIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      className="h-4 w-4"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3Z" />
-    </svg>
-  )
-}
-
 export function PassengerMapHeader({
-  recommendedRoute,
   selectedRouteName,
   visibleVehiclesCount,
   activeRoutesCount,
-  nearbyRoutesCount,
   onOpenRoutes,
-  onFocusRecommended,
 }: {
-  recommendedRoute: PassengerRouteDistanceEntry | null
   selectedRouteName: string | null
   visibleVehiclesCount: number
   activeRoutesCount: number
-  nearbyRoutesCount: number
   onOpenRoutes: () => void
-  onFocusRecommended: () => void
 }) {
   return (
     <header className="panel px-3 py-3 sm:px-4">
