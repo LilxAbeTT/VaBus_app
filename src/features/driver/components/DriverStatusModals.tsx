@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import type { BusRoute } from '../../../types/domain'
+import type { BusRoute, DriverSupportThread } from '../../../types/domain'
 import {
   getTransportTypeLabel,
   hasRouteSchedule,
@@ -250,6 +250,129 @@ export function DriverRouteChangeModal({
               className="min-h-11 rounded-full bg-slate-900 px-5 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-slate-300"
             >
               {isSubmitting ? 'Guardando...' : 'Confirmar cambio'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </ModalPortal>
+  )
+}
+
+export function DriverSupportModal({
+  supportThread,
+  draftMessage,
+  onDraftMessageChange,
+  onClose,
+  onSubmit,
+  isSubmitting,
+}: {
+  supportThread: DriverSupportThread | null
+  draftMessage: string
+  onDraftMessageChange: (value: string) => void
+  onClose: () => void
+  onSubmit: () => void
+  isSubmitting: boolean
+}) {
+  return (
+    <ModalPortal>
+      <div
+        className="fixed inset-0 z-[1400] flex items-end justify-center bg-slate-950/35 p-4 backdrop-blur-[2px] sm:items-center"
+        onClick={onClose}
+      >
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Chat de soporte"
+          className="panel flex w-full max-w-lg flex-col px-5 py-5"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="eyebrow">Soporte</p>
+              <h2 className="mt-2 font-display text-2xl text-slate-900">
+                Chat con administración
+              </h2>
+              <p className="mt-2 text-sm text-slate-600">
+                {supportThread
+                  ? supportThread.status === 'open'
+                    ? 'Tu conversación sigue abierta.'
+                    : 'La conversación anterior fue cerrada. Si escribes de nuevo se reabrirá.'
+                  : 'Describe el problema operativo o técnico que necesitas reportar.'}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
+              aria-label="Cerrar chat de soporte"
+            >
+              X
+            </button>
+          </div>
+
+          <div className="mt-4 max-h-[44svh] space-y-3 overflow-y-auto rounded-[1.2rem] border border-slate-200 bg-slate-50 px-3 py-3">
+            {supportThread?.messages.length ? (
+              supportThread.messages.map((message) => {
+                const isDriverMessage = message.senderRole === 'driver'
+
+                return (
+                  <article
+                    key={message.id}
+                    className={`rounded-[1.1rem] px-4 py-3 ${
+                      isDriverMessage
+                        ? 'ml-6 bg-white text-slate-800'
+                        : 'mr-6 bg-teal-50 text-slate-900'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-semibold">{message.senderName}</p>
+                      <p className="text-xs text-slate-500">
+                        {new Intl.DateTimeFormat('es-MX', {
+                          dateStyle: 'short',
+                          timeStyle: 'short',
+                        }).format(new Date(message.createdAt))}
+                      </p>
+                    </div>
+                    <p className="mt-2 text-sm leading-6">{message.body}</p>
+                  </article>
+                )
+              })
+            ) : (
+              <p className="px-2 py-6 text-sm leading-6 text-slate-600">
+                Aún no hay mensajes en este chat. Tu primer mensaje abrirá la
+                conversación para administración.
+              </p>
+            )}
+          </div>
+
+          <label className="mt-4 block">
+            <span className="text-sm font-semibold text-slate-700">
+              Mensaje
+            </span>
+            <textarea
+              value={draftMessage}
+              onChange={(event) => onDraftMessageChange(event.target.value)}
+              rows={4}
+              placeholder="Ejemplo: se congeló la ubicación, el mapa no actualiza o necesito apoyo con la ruta."
+              className="mt-2 w-full rounded-[1.2rem] border border-slate-200 bg-white px-4 py-3 text-sm leading-6 text-slate-900 outline-none transition focus:border-teal-500 focus:ring-4 focus:ring-teal-100"
+            />
+          </label>
+
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+            <button
+              type="button"
+              onClick={onClose}
+              className="min-h-11 rounded-full border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:text-slate-900"
+            >
+              Cerrar
+            </button>
+            <button
+              type="button"
+              onClick={onSubmit}
+              disabled={isSubmitting}
+              className="min-h-11 rounded-full bg-slate-900 px-5 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+            >
+              {isSubmitting ? 'Enviando...' : 'Enviar a soporte'}
             </button>
           </div>
         </div>

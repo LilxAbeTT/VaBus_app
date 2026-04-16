@@ -11,6 +11,12 @@ import {
   getOpenServiceForDriver,
   getOpenServiceForVehicle,
 } from './lib/services'
+import {
+  getSupportThreadForDriver,
+  markSupportThreadSeen as markSupportThreadSeenByRole,
+  toSupportThreadSummary,
+  upsertDriverSupportThread,
+} from './lib/support'
 import { recordDriverLocationUpdate } from './lib/driverLocationUpdates'
 import { getOperationalStatusForService } from './lib/serviceOperationalState'
 import { recordSystemEvent } from './lib/systemEvents'
@@ -163,6 +169,26 @@ export const getCurrentServiceState = query({
       getRouteByIdMap(routes),
       Date.now(),
     )
+  },
+})
+
+export const getSupportThread = query({
+  args: {
+    sessionToken: v.string(),
+  },
+  handler: async ({ db }, { sessionToken }) => {
+    const { user: driver } = await requireAuthenticatedSession(
+      db,
+      sessionToken,
+      'driver',
+    )
+    const supportThread = await getSupportThreadForDriver(db, driver._id)
+
+    if (!supportThread) {
+      return null
+    }
+
+    return toSupportThreadSummary(supportThread)
   },
 })
 
@@ -492,5 +518,63 @@ export const reportRouteScheduleIssue = mutation({
       reportedAt: new Date().toISOString(),
       routeId: route._id,
     }
+  },
+})
+
+export const sendSupportMessage = mutation({
+  args: {
+    sessionToken: v.string(),
+    message: v.string(),
+  },
+  handler: async ({ db }, { sessionToken, message }) => {
+    const { user: driver } = await requireAuthenticatedSession(
+      db,
+      sessionToken,
+      'driver',
+    )
+    const supportThread = await upsertDriverSupportThread(db, driver, message)
+
+    if (!supportThread) {
+      throw new ConvexError('No fue posible registrar tu mensaje de soporte.')
+    }
+
+    await recordSystemEvent(db, {
+      category: 'driver',
+      title: 'Solicitud de soporte del conductor',
+      description: `${driver.name} envió un nuevo mensaje a soporte.`,
+      actorName: driver.name,
+      actorRole: 'driver',
+      targetType: 'driver',
+      targetId: driver._id,
+    })
+
+    return toSupportThreadSummary(supportThread)
+  },
+})
+
+export const markSupportThreadSeen = mutation({
+  args: {
+    sessionToken: v.string(),
+    threadId: v.id('supportThreads'),
+  },
+  handler: async ({ db }, { sessionToken, threadId }) => {
+    const { user: driver } = await requireAuthenticatedSession(
+      db,
+      sessionToken,
+      'driver',
+    )
+    const supportThread = await db.get(threadId)
+
+    if (!supportThread || supportThread.driverId !== driver._id) {
+      throw new ConvexError('La conversación de soporte ya no está disponible.')
+    }
+
+    const updatedThread = await markSupportThreadSeenByRole(
+      db,
+      supportThread,
+      'driver',
+    )
+
+    return toSupportThreadSummary(updatedThread ?? supportThread)
   },
 })

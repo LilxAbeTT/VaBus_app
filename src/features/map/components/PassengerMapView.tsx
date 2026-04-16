@@ -46,6 +46,9 @@ import {
   routeMatchesSearch,
 } from './passengerMapViewUtils'
 
+const PASSENGER_MAP_REFRESH_INTERVAL_MS = 15_000
+const PASSENGER_MAP_RELATIVE_TIME_INTERVAL_MS = 30_000
+
 function LocationTargetIcon() {
   return (
     <svg
@@ -73,7 +76,7 @@ function PassengerMapContent({
   snapshot: PassengerMapSnapshot
 }) {
   const routes = snapshot.routes
-  const currentTimeMs = useCurrentTime(30_000)
+  const currentTimeMs = useCurrentTime(PASSENGER_MAP_RELATIVE_TIME_INTERVAL_MS)
   const routeGroups = useMemo(() => getRouteGroups(routes), [routes])
   const {
     hasHydratedSelection,
@@ -345,6 +348,8 @@ function PassengerMapContent({
     const vehicleMarkerById = vehicleMarkerByIdRef.current
     const map = L.map(mapContainerRef.current, {
       scrollWheelZoom: false,
+      touchZoom: true,
+      doubleClickZoom: true,
       zoomControl: false,
     })
 
@@ -397,9 +402,9 @@ function PassengerMapContent({
           color: isSecondaryRoute ? '#94a3b8' : route.color,
           weight: selectedRoute ? (isSelectedRoute ? 7 : 4) : 4,
           opacity: selectedRoute ? (isSelectedRoute ? 0.98 : 0.3) : 0.78,
+          interactive: false,
         })
           .addTo(routeLayer)
-          .bindPopup(route.name)
       })
     })
   }, [displayedRoutes, selectedRoute])
@@ -605,8 +610,8 @@ function PassengerMapContent({
                 className="h-[50svh] min-h-[320px] w-full sm:h-[62svh] xl:h-[calc(100svh-11rem)] xl:min-h-[560px]"
               />
 
-              <div className="absolute left-3 right-3 top-3 flex items-start justify-between gap-3">
-                <div className="max-w-[70%] rounded-full bg-white/92 px-3 py-2 shadow-[0_14px_28px_-24px_rgba(15,23,42,0.6)] backdrop-blur">
+              <div className="pointer-events-none absolute left-3 right-3 top-3 flex items-start justify-between gap-3">
+                <div className="pointer-events-auto max-w-[70%] rounded-full bg-white/92 px-3 py-2 shadow-[0_14px_28px_-24px_rgba(15,23,42,0.6)] backdrop-blur">
                   <p className="text-xs font-semibold uppercase tracking-[0.22em] text-teal-700">
                     {selectedRoute
                       ? getTransportTypeLabel(selectedRoute.transportType)
@@ -619,7 +624,7 @@ function PassengerMapContent({
                   </p>
                 </div>
 
-                <div className="flex flex-col gap-2">
+                <div className="pointer-events-auto flex flex-col gap-2">
                   <button
                     type="button"
                     onClick={() => setCenterOnUserRequestCount((value) => value + 1)}
@@ -641,8 +646,8 @@ function PassengerMapContent({
               </div>
 
               {selectedRoute || selectedVehicleSummary ? (
-                <div className="absolute bottom-3 left-3 right-3">
-                  <div className="rounded-[1.3rem] bg-white/94 px-4 py-3 shadow-[0_18px_35px_-28px_rgba(15,23,42,0.6)] backdrop-blur">
+                <div className="pointer-events-none absolute bottom-3 left-3 right-3">
+                  <div className="pointer-events-auto rounded-[1.3rem] bg-white/94 px-4 py-3 shadow-[0_18px_35px_-28px_rgba(15,23,42,0.6)] backdrop-blur">
                     {selectedRoute ? (
                       <div className="flex flex-wrap items-center gap-2">
                         <span
@@ -807,7 +812,7 @@ export function PassengerMapView() {
 }
 
 function PassengerMapConnectedView() {
-  const currentTimeMs = useCurrentTime(30_000)
+  const currentTimeMs = useCurrentTime(PASSENGER_MAP_REFRESH_INTERVAL_MS)
   const snapshot = usePassengerMapSnapshot(currentTimeMs)
 
   if (snapshot === undefined) {

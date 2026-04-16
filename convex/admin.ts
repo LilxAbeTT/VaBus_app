@@ -16,6 +16,11 @@ import {
   getOperationalStatusForService,
 } from './lib/serviceOperationalState'
 import {
+  markSupportThreadSeen as markSupportThreadSeenByRole,
+  normalizeSupportMessageBody,
+  toSupportThreadSummary,
+} from './lib/support'
+import {
   getOpenServiceForDriver,
   getOpenServiceForVehicle,
   getOpenServices,
@@ -278,7 +283,7 @@ export const getManagementCatalog = query({
       'admin',
     )
 
-    const [routes, drivers, vehicles, openServices] = await Promise.all([
+    const [routes, drivers, vehicles, openServices, supportThreads] = await Promise.all([
       db.query('routes').collect(),
       db
         .query('users')
@@ -286,6 +291,11 @@ export const getManagementCatalog = query({
         .collect(),
       db.query('vehicles').order('asc').collect(),
       getOpenServices(db),
+      db
+        .query('supportThreads')
+        .withIndex('by_updated_at')
+        .order('desc')
+        .collect(),
     ])
     const activeRoutes = routes.filter((route) => route.status === 'active')
     const serviceByDriverId = new Map(
@@ -441,6 +451,19 @@ export const getManagementCatalog = query({
             description: `${vehicle.unitNumber} está asignada a múltiples conductores base.`,
           })),
       ],
+      supportThreads: supportThreads
+        .map((thread) => toSupportThreadSummary(thread))
+        .sort((left, right) => {
+          if (left.hasUnreadForAdmin !== right.hasUnreadForAdmin) {
+            return left.hasUnreadForAdmin ? -1 : 1
+          }
+
+          if (left.status !== right.status) {
+            return left.status === 'open' ? -1 : 1
+          }
+
+          return right.updatedAt.localeCompare(left.updatedAt)
+        }),
     }
   },
 })
@@ -1284,6 +1307,140 @@ export const setRouteStatus = mutation({
     return {
       routeId,
       status,
+    }
+  },
+})
+
+export const replySupportThread = mutation({
+  args: {
+    sessionToken: v.string(),
+    threadId: v.id('supportThreads'),
+    message: v.string(),
+  },
+  handler: async ({ db }, { sessionToken, threadId, message }) => {
+    const { user: admin } = await requireAuthenticatedSession(
+      db,
+      sessionToken,
+      'admin',
+    )
+    const supportThread = await db.get(threadId)
+
+    if (!supportThread) {
+      throw new ConvexError('La conversación de soporte ya no existe.')
+    }
+
+    const normalizedMessage = normalizeSupportMessageBody(message)
+    const createdAt = new Date().toISOString()
+
+    await db.patch(threadId, {
+      status: 'open',
+      updatedAt: createdAt,
+      lastAdminMessageAt: createdAt,
+      lastSeenByAdminAt: createdAt,
+      messages: [
+        ...supportThread.messages,
+        {
+          id: crypto.randomUUID(),
+          senderRole: 'admin',
+          senderName: admin.name,
+          body: normalizedMessage,
+          createdAt,
+        },
+      ],
+    })
+
+    await recordSystemEvent(db, {
+      category: 'driver',
+      title: 'Respuesta de soporte enviada',
+      description: `Administración respondió la conversación de soporte de ${supportThread.driverName}.`,
+      actorName: admin.name,
+      actorRole: 'admin',
+      targetType: 'driver',
+      targetId: supportThread.driverId,
+    })
+
+    return {
+      threadId,
+      repliedAt: createdAt,
+    }
+  },
+})
+
+export const markSupportThreadSeen = mutation({
+  args: {
+    sessionToken: v.string(),
+    threadId: v.id('supportThreads'),
+  },
+  handler: async ({ db }, { sessionToken, threadId }) => {
+    await requireAuthenticatedSession(db, sessionToken, 'admin')
+    const supportThread = await db.get(threadId)
+
+    if (!supportThread) {
+      throw new ConvexError('La conversación de soporte ya no existe.')
+    }
+
+    const updatedThread = await markSupportThreadSeenByRole(
+      db,
+      supportThread,
+      'admin',
+    )
+
+    return {
+      threadId,
+      lastSeenByAdminAt: updatedThread?.lastSeenByAdminAt,
+    }
+  },
+})
+
+export const setSupportThreadStatus = mutation({
+  args: {
+    sessionToken: v.string(),
+    threadId: v.id('supportThreads'),
+    status: v.union(v.literal('open'), v.literal('closed')),
+  },
+  handler: async ({ db }, { sessionToken, threadId, status }) => {
+    const { user: admin } = await requireAuthenticatedSession(
+      db,
+      sessionToken,
+      'admin',
+    )
+    const supportThread = await db.get(threadId)
+
+    if (!supportThread) {
+      throw new ConvexError('La conversación de soporte ya no existe.')
+    }
+
+    if (supportThread.status === status) {
+      return {
+        threadId,
+        status,
+      }
+    }
+
+    const updatedAt = new Date().toISOString()
+
+    await db.patch(threadId, {
+      status,
+      updatedAt,
+    })
+
+    await recordSystemEvent(db, {
+      category: 'driver',
+      title:
+        status === 'open'
+          ? 'Conversación de soporte reabierta'
+          : 'Conversación de soporte cerrada',
+      description: `Administración ${status === 'open' ? 'reabrió' : 'cerró'} la conversación de soporte de ${supportThread.driverName}.`,
+      actorName: admin.name,
+      actorRole: 'admin',
+      targetType: 'driver',
+      targetId: supportThread.driverId,
+    })
+
+    return {
+      threadId,
+      status,
+      updatedAt,
     }
   },
 })

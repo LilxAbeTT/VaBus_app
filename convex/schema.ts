@@ -97,6 +97,34 @@ export default defineSchema({
     .index('by_token', ['token'])
     .index('by_user', ['userId']),
 
+  supportThreads: defineTable({
+    driverId: v.id('users'),
+    driverName: v.string(),
+    driverEmail: v.string(),
+    routeId: v.optional(v.id('routes')),
+    routeName: v.optional(v.string()),
+    serviceId: v.optional(v.id('activeServices')),
+    status: v.union(v.literal('open'), v.literal('closed')),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+    lastDriverMessageAt: v.optional(v.string()),
+    lastAdminMessageAt: v.optional(v.string()),
+    lastSeenByDriverAt: v.optional(v.string()),
+    lastSeenByAdminAt: v.optional(v.string()),
+    messages: v.array(
+      v.object({
+        id: v.string(),
+        senderRole: v.union(v.literal('driver'), v.literal('admin')),
+        senderName: v.string(),
+        body: v.string(),
+        createdAt: v.string(),
+      }),
+    ),
+  })
+    .index('by_driver', ['driverId'])
+    .index('by_status_updated_at', ['status', 'updatedAt'])
+    .index('by_updated_at', ['updatedAt']),
+
   systemEvents: defineTable({
     category: v.union(
       v.literal('service'),

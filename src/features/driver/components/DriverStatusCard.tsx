@@ -7,11 +7,9 @@ import { api } from '../../../../convex/_generated/api'
 import type { AuthenticatedSession } from '../../../types/domain'
 import { useCurrentTime } from '../../../hooks/useCurrentTime'
 import {
-  REALTIME_ROUTE_SANITY_MAX_DISTANCE_METERS,
   evaluateBrowserSignalPlausibility,
   evaluateRealtimeSignalDispatch,
   formatElapsedSignalTime,
-  getMinimumDistanceToRouteMeters,
 } from '../../../lib/trackingSignal'
 import { useDriverLocationTracking } from '../hooks/useDriverLocationTracking'
 import type { DriverLocationReading } from '../hooks/locationTrackingTypes'
@@ -30,6 +28,7 @@ import {
   DriverPanelEmptyState,
   DriverRouteChangeModal,
   DriverRouteInfoModal,
+  DriverSupportModal,
 } from './DriverStatusModals'
 import { DriverStatusSummary } from './DriverStatusSummary'
 import {
@@ -101,7 +100,6 @@ export function DriverStatusCard({
     startTracking,
     stopTracking,
     trackingMode,
-    supportsBackgroundTracking,
     openSettings,
   } = useDriverLocationTracking()
 
@@ -113,6 +111,8 @@ export function DriverStatusCard({
   const addLocationUpdate = useMutation(api.driver.addLocationUpdate)
   const changeAssignedRoute = useMutation(api.driver.changeAssignedRoute)
   const reportRouteScheduleIssue = useMutation(api.driver.reportRouteScheduleIssue)
+  const sendSupportMessage = useMutation(api.driver.sendSupportMessage)
+  const markSupportThreadSeen = useMutation(api.driver.markSupportThreadSeen)
 
   const panelContext = useQuery(api.driver.getPanelContext, {
     sessionToken: session.token,
@@ -120,13 +120,16 @@ export function DriverStatusCard({
   const currentServiceState = useQuery(api.driver.getCurrentServiceState, {
     sessionToken: session.token,
   })
+  const supportThread = useQuery(api.driver.getSupportThread, {
+    sessionToken: session.token,
+  })
 
   const [selectedRouteId, setSelectedRouteId] = useState('')
   const [pendingRouteId, setPendingRouteId] = useState('')
   const [isRouteChangeOpen, setRouteChangeOpen] = useState(false)
   const [isRouteInfoOpen, setRouteInfoOpen] = useState(false)
-  const [manualLat, setManualLat] = useState('')
-  const [manualLng, setManualLng] = useState('')
+  const [isSupportOpen, setSupportOpen] = useState(false)
+  const [supportDraftMessage, setSupportDraftMessage] = useState('')
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -134,6 +137,7 @@ export function DriverStatusCard({
   const [isRefreshingLocation, setIsRefreshingLocation] = useState(false)
   const [isReportingMissingSchedule, setIsReportingMissingSchedule] =
     useState(false)
+  const [isSendingSupportMessage, setIsSendingSupportMessage] = useState(false)
   const [shouldAutoResumeShare, setShouldAutoResumeShare] = useState(() =>
     readStoredAutoSharePreference(session.user.id),
   )
@@ -150,12 +154,13 @@ export function DriverStatusCard({
 
   const currentService =
     currentServiceState === undefined ? undefined : currentServiceState ?? null
+  const currentSupportThread =
+    supportThread === undefined ? undefined : supportThread ?? null
   const availableRoutes = useMemo(
     () => panelContext?.availableRoutes ?? [],
     [panelContext?.availableRoutes],
   )
   const isNativeBackgroundTracking = trackingMode === 'native-background'
-  const showManualFallback = currentService?.status === 'active'
   const hasAssignedVehicle = Boolean(panelContext?.vehicle)
   const isRealtimeBusy =
     trackingStatus === 'requesting_permission' ||
@@ -169,9 +174,6 @@ export function DriverStatusCard({
   )
   const trackingModeLabel =
     isNativeBackgroundTracking ? 'App nativa' : 'Navegador'
-  const backgroundCapabilityMessage = supportsBackgroundTracking
-    ? 'La app puede seguir compartiendo tu ubicación con la pantalla bloqueada o minimizada mientras el servicio siga activo.'
-    : 'En navegador el tracking depende de mantener la pestaña visible. Para segundo plano usa la app móvil del conductor.'
   const sharingStatusLabel = getSharingStatusLabel({
     currentServiceStatus: currentService?.status,
     permissionState,
@@ -233,37 +235,6 @@ export function DriverStatusCard({
       ) ?? selectedRoute,
     [availableRoutes, currentService?.routeId, selectedRoute, selectedRouteId],
   )
-
-  const suggestedPoint = useMemo(() => {
-    if (
-      currentService?.lastPosition &&
-      routeInView &&
-      (() => {
-        const distanceToRouteMeters = getMinimumDistanceToRouteMeters(
-          currentService.lastPosition,
-          routeInView.segments,
-        )
-
-        return (
-          distanceToRouteMeters === null ||
-          distanceToRouteMeters <= REALTIME_ROUTE_SANITY_MAX_DISTANCE_METERS
-        )
-      })()
-    ) {
-      return currentService.lastPosition
-    }
-
-    return routeInView?.segments[0]?.[0] ?? null
-  }, [currentService?.lastPosition, routeInView])
-
-  useEffect(() => {
-    if (!suggestedPoint) {
-      return
-    }
-
-    setManualLat((currentValue) => currentValue || suggestedPoint.lat.toFixed(6))
-    setManualLng((currentValue) => currentValue || suggestedPoint.lng.toFixed(6))
-  }, [suggestedPoint])
 
   useEffect(() => {
     lastSentSignalRef.current = {
@@ -608,6 +579,25 @@ export function DriverStatusCard({
     isNativeBackgroundTracking,
   ])
 
+  useEffect(() => {
+    if (!isSupportOpen || !currentSupportThread?.hasUnreadForDriver) {
+      return
+    }
+
+    void markSupportThreadSeen({
+      sessionToken: session.token,
+      threadId: currentSupportThread.id as Id<'supportThreads'>,
+    }).catch(() => {
+      // Si falla el marcado, el aviso seguira visible hasta el siguiente intento.
+    })
+  }, [
+    currentSupportThread?.hasUnreadForDriver,
+    currentSupportThread?.id,
+    isSupportOpen,
+    markSupportThreadSeen,
+    session.token,
+  ])
+
   if (!panelContext || currentService === undefined) {
     return (
       <DriverPanelEmptyState
@@ -740,21 +730,6 @@ export function DriverStatusCard({
     })
   }
 
-  const handleSendManualLocation = () => {
-    const lat = Number(manualLat)
-    const lng = Number(manualLng)
-
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-      setErrorMessage('Ingresa una latitud y longitud válidas.')
-      return
-    }
-
-    runAction(async () => {
-      await sendLocationUpdate(lat, lng)
-      setFeedbackMessage('Ubicación enviada.')
-    })
-  }
-
   const handleRefreshLocation = () => {
     if (currentService?.status !== 'active') {
       return
@@ -781,6 +756,31 @@ export function DriverStatusCard({
         setErrorMessage(getErrorMessage(error))
       } finally {
         setIsRefreshingLocation(false)
+      }
+    })()
+  }
+
+  const handleSubmitSupportMessage = () => {
+    setErrorMessage(null)
+    setFeedbackMessage(null)
+    setIsSendingSupportMessage(true)
+
+    void (async () => {
+      try {
+        const nextThread = await sendSupportMessage({
+          sessionToken: session.token,
+          message: supportDraftMessage,
+        })
+        setSupportDraftMessage('')
+        setFeedbackMessage(
+          nextThread.messages.length === 1
+            ? 'Tu solicitud de soporte fue enviada.'
+            : 'Tu mensaje se agregó al chat de soporte.',
+        )
+      } catch (error) {
+        setErrorMessage(getErrorMessage(error))
+      } finally {
+        setIsSendingSupportMessage(false)
       }
     })()
   }
@@ -829,6 +829,17 @@ export function DriverStatusCard({
   const lastSignalLabel = currentService?.lastLocationUpdateAt
     ? timeSinceLastSignal
     : 'Sin señal aún'
+  const supportButtonLabel =
+    currentSupportThread?.hasUnreadForDriver
+      ? 'Nueva respuesta de soporte'
+      : currentSupportThread?.status === 'open'
+        ? 'Abrir chat de soporte'
+        : 'Contactar soporte'
+  const supportButtonDescription = currentSupportThread?.hasUnreadForDriver
+    ? 'Hay una respuesta nueva de administración pendiente por revisar.'
+    : currentSupportThread?.status === 'open'
+      ? 'Tu conversación sigue abierta y puedes continuarla.'
+      : 'Abre un chat directo con administración si necesitas ayuda.'
 
   return (
     <>
@@ -862,37 +873,31 @@ export function DriverStatusCard({
             livePosition={lastTrackedPosition}
             lastSharedPosition={currentService?.lastPosition ?? null}
           />
-
-          {showManualFallback ? (
-            <div className="mt-3 grid gap-3 rounded-[1.25rem] border border-slate-200 bg-slate-50/80 px-4 py-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
-              <label className="block">
-                <span className="text-sm font-semibold text-slate-700">Latitud</span>
-                <input
-                  type="text"
-                  value={manualLat}
-                  onChange={(event) => setManualLat(event.target.value)}
-                  className="mt-2 min-h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-slate-900 outline-none transition focus:border-teal-500 focus:ring-4 focus:ring-teal-100"
-                />
-              </label>
-              <label className="block">
-                <span className="text-sm font-semibold text-slate-700">Longitud</span>
-                <input
-                  type="text"
-                  value={manualLng}
-                  onChange={(event) => setManualLng(event.target.value)}
-                  className="mt-2 min-h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-slate-900 outline-none transition focus:border-teal-500 focus:ring-4 focus:ring-teal-100"
-                />
-              </label>
-              <button
-                type="button"
-                onClick={handleSendManualLocation}
-                disabled={isSubmitting || currentService?.status !== 'active'}
-                className="min-h-11 rounded-full bg-slate-900 px-5 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-              >
-                Enviar
-              </button>
-            </div>
-          ) : null}
+          <button
+            type="button"
+            onClick={() => setSupportOpen(true)}
+            className={`mt-3 flex min-h-11 w-full items-center justify-center rounded-full border px-5 py-3 text-sm font-semibold transition ${
+              currentSupportThread?.hasUnreadForDriver
+                ? 'border-teal-600 bg-teal-600 text-white shadow-[0_20px_40px_-28px_rgba(13,148,136,0.75)] hover:bg-teal-700'
+                : 'border-slate-300 bg-white text-slate-700 hover:border-teal-300 hover:text-teal-700'
+            }`}
+          >
+            <span className="flex items-center gap-2">
+              {currentSupportThread?.hasUnreadForDriver ? (
+                <span className="inline-flex h-2.5 w-2.5 rounded-full bg-white" />
+              ) : null}
+              <span>{supportButtonLabel}</span>
+            </span>
+          </button>
+          <p
+            className={`mt-2 text-sm leading-6 ${
+              currentSupportThread?.hasUnreadForDriver
+                ? 'text-teal-700'
+                : 'text-slate-500'
+            }`}
+          >
+            {supportButtonDescription}
+          </p>
         </section>
 
         {feedbackMessage ? (
@@ -900,10 +905,6 @@ export function DriverStatusCard({
             {feedbackMessage}
           </p>
         ) : null}
-
-        <p className="rounded-2xl bg-sky-50 px-4 py-3 text-sm text-sky-800">
-          {backgroundCapabilityMessage}
-        </p>
 
         {errorMessage ? (
           <p className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">
@@ -947,6 +948,17 @@ export function DriverStatusCard({
           onClose={() => setRouteInfoOpen(false)}
           onReportMissingSchedule={handleReportMissingSchedule}
           isReportingMissingSchedule={isReportingMissingSchedule}
+        />
+      ) : null}
+
+      {isSupportOpen ? (
+        <DriverSupportModal
+          supportThread={currentSupportThread ?? null}
+          draftMessage={supportDraftMessage}
+          onDraftMessageChange={setSupportDraftMessage}
+          onClose={() => setSupportOpen(false)}
+          onSubmit={handleSubmitSupportMessage}
+          isSubmitting={isSendingSupportMessage}
         />
       ) : null}
     </>

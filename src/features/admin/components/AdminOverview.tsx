@@ -52,6 +52,28 @@ function getPillTone(value: string) {
   }
 }
 
+function getSupportStatusTone(value: 'open' | 'closed') {
+  return value === 'open'
+    ? 'bg-emerald-100 text-emerald-700'
+    : 'bg-slate-100 text-slate-600'
+}
+
+function getSupportStatusLabel(value: 'open' | 'closed') {
+  return value === 'open' ? 'Abierta' : 'Cerrada'
+}
+
+function getSupportSenderLabel(value?: 'driver' | 'admin') {
+  if (value === 'driver') {
+    return 'Ultimo mensaje del conductor'
+  }
+
+  if (value === 'admin') {
+    return 'Ultimo mensaje de admin'
+  }
+
+  return 'Sin mensajes'
+}
+
 function AdminEmptyState(props: { title: string; description: string }) {
   return (
     <section className="panel px-4 py-5 sm:px-6 sm:py-6">
@@ -88,6 +110,9 @@ function AdminDashboardContent({
   const pauseService = useMutation(api.admin.pauseService)
   const resumeService = useMutation(api.admin.resumeService)
   const finishService = useMutation(api.admin.finishService)
+  const replySupportThread = useMutation(api.admin.replySupportThread)
+  const markSupportThreadSeen = useMutation(api.admin.markSupportThreadSeen)
+  const setSupportThreadStatus = useMutation(api.admin.setSupportThreadStatus)
 
   const [driverForm, setDriverForm] = useState({
     name: '',
@@ -107,8 +132,12 @@ function AdminDashboardContent({
   const [editingVehicleId, setEditingVehicleId] = useState<string | null>(null)
   const [serviceSearch, setServiceSearch] = useState('')
   const [routeSearch, setRouteSearch] = useState('')
+  const [supportSearch, setSupportSearch] = useState('')
   const [driverSearch, setDriverSearch] = useState('')
   const [vehicleSearch, setVehicleSearch] = useState('')
+  const [supportReplyDrafts, setSupportReplyDrafts] = useState<
+    Record<string, string>
+  >({})
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -135,6 +164,15 @@ function AdminDashboardContent({
       ),
     [dashboard.routeCatalog, routeSearch],
   )
+  const filteredSupportThreads = useMemo(
+    () =>
+      dashboard.supportThreads.filter((thread) =>
+        `${thread.driverName} ${thread.driverEmail} ${thread.routeName ?? ''} ${thread.latestMessagePreview ?? ''}`
+          .toLowerCase()
+          .includes(supportSearch.toLowerCase()),
+      ),
+    [dashboard.supportThreads, supportSearch],
+  )
   const filteredDrivers = useMemo(
     () =>
       dashboard.drivers.filter((driver) =>
@@ -153,6 +191,13 @@ function AdminDashboardContent({
       ),
     [dashboard.vehicles, vehicleSearch],
   )
+
+  const updateSupportReplyDraft = (threadId: string, value: string) => {
+    setSupportReplyDrafts((current) => ({
+      ...current,
+      [threadId]: value,
+    }))
+  }
 
   const runMutation = (runner: () => Promise<void>) => {
     setErrorMessage(null)
@@ -248,6 +293,55 @@ function AdminDashboardContent({
         defaultRouteId: '',
       })
       setEditingVehicleId(null)
+    })
+
+  const handleSupportReply = (threadId: string) => {
+    const draftMessage = supportReplyDrafts[threadId]?.trim() ?? ''
+
+    if (!draftMessage) {
+      setErrorMessage('Escribe una respuesta antes de enviarla.')
+      setFeedbackMessage(null)
+      return
+    }
+
+    runMutation(async () => {
+      await replySupportThread({
+        sessionToken,
+        threadId: threadId as Id<'supportThreads'>,
+        message: draftMessage,
+      })
+      setSupportReplyDrafts((current) => ({
+        ...current,
+        [threadId]: '',
+      }))
+      setFeedbackMessage('Respuesta de soporte enviada.')
+    })
+  }
+
+  const handleSupportStatusChange = (
+    threadId: string,
+    status: 'open' | 'closed',
+  ) =>
+    runMutation(async () => {
+      await setSupportThreadStatus({
+        sessionToken,
+        threadId: threadId as Id<'supportThreads'>,
+        status,
+      })
+      setFeedbackMessage(
+        status === 'closed'
+          ? 'Conversacion de soporte cerrada.'
+          : 'Conversacion de soporte reabierta.',
+      )
+    })
+
+  const handleSupportSeen = (threadId: string) =>
+    runMutation(async () => {
+      await markSupportThreadSeen({
+        sessionToken,
+        threadId: threadId as Id<'supportThreads'>,
+      })
+      setFeedbackMessage('Conversacion marcada como revisada.')
     })
 
   return (
@@ -402,6 +496,178 @@ function AdminDashboardContent({
             </div>
           </article>
         </aside>
+      </section>
+
+      <section className="panel px-4 py-5 sm:px-6 sm:py-6">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="eyebrow">Soporte</p>
+            <div className="mt-2 flex flex-wrap items-center gap-3">
+              <h3 className="font-display text-xl text-slate-900 sm:text-2xl">
+                Inbox de conductores
+              </h3>
+              {dashboard.supportThreads.some((thread) => thread.hasUnreadForAdmin) ? (
+                <span className="inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
+                  {
+                    dashboard.supportThreads.filter(
+                      (thread) => thread.hasUnreadForAdmin,
+                    ).length
+                  }{' '}
+                  pendiente(s)
+                </span>
+              ) : null}
+            </div>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+              Revisa solicitudes operativas, responde desde admin y cierra la
+              conversacion cuando el caso quede resuelto.
+            </p>
+          </div>
+          <input
+            type="text"
+            value={supportSearch}
+            onChange={(event) => setSupportSearch(event.target.value)}
+            placeholder="Buscar solicitud"
+            className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-teal-500 focus:ring-4 focus:ring-teal-100 lg:max-w-sm"
+          />
+        </div>
+
+        <div className="mt-5 space-y-4">
+          {filteredSupportThreads.length > 0 ? (
+            filteredSupportThreads.map((thread) => (
+              <article
+                key={thread.id}
+                className="rounded-[1.6rem] border border-slate-200 bg-white px-4 py-4 sm:px-5"
+              >
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-display text-xl text-slate-900">
+                        {thread.driverName}
+                      </p>
+                      <span
+                        className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getSupportStatusTone(thread.status)}`}
+                      >
+                        {getSupportStatusLabel(thread.status)}
+                      </span>
+                      {thread.hasUnreadForAdmin ? (
+                        <span className="inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
+                          Mensaje nuevo
+                        </span>
+                      ) : null}
+                      <span className="inline-flex rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700">
+                        {getSupportSenderLabel(thread.latestMessageRole)}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-sm text-slate-600">
+                      {thread.driverEmail}
+                    </p>
+                    <div className="mt-3 grid gap-2 text-sm text-slate-500 sm:grid-cols-2 xl:grid-cols-4">
+                      <p>Ruta: {thread.routeName ?? 'Sin ruta activa'}</p>
+                      <p>Creada: {formatDateTime(thread.createdAt)}</p>
+                      <p>Actualizada: {formatDateTime(thread.updatedAt)}</p>
+                      <p>
+                        Ultimo conductor:{' '}
+                        {formatDateTime(thread.lastDriverMessageAt)}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {thread.hasUnreadForAdmin ? (
+                      <button
+                        type="button"
+                        onClick={() => handleSupportSeen(thread.id)}
+                        disabled={isSubmitting}
+                        className="inline-flex min-h-10 items-center justify-center rounded-full border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-900 transition hover:border-amber-400 hover:bg-amber-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+                      >
+                        Marcar revisado
+                      </button>
+                    ) : null}
+                    {thread.status === 'open' ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleSupportStatusChange(thread.id, 'closed')
+                        }
+                        disabled={isSubmitting}
+                        className="inline-flex min-h-10 items-center justify-center rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-rose-300 hover:text-rose-700 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+                      >
+                        Cerrar caso
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleSupportStatusChange(thread.id, 'open')
+                        }
+                        disabled={isSubmitting}
+                        className="inline-flex min-h-10 items-center justify-center rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-emerald-300 hover:text-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+                      >
+                        Reabrir caso
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="mt-4 max-h-[24rem] space-y-3 overflow-y-auto rounded-[1.2rem] border border-slate-200 bg-slate-50 px-3 py-3">
+                  {thread.messages.map((message) => {
+                    const isDriverMessage = message.senderRole === 'driver'
+
+                    return (
+                      <article
+                        key={message.id}
+                        className={`rounded-[1.1rem] px-4 py-3 ${
+                          isDriverMessage
+                            ? 'mr-8 bg-white text-slate-800'
+                            : 'ml-8 bg-teal-50 text-slate-900'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-sm font-semibold">
+                            {message.senderName}
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            {formatDateTime(message.createdAt)}
+                          </p>
+                        </div>
+                        <p className="mt-2 text-sm leading-6">{message.body}</p>
+                      </article>
+                    )
+                  })}
+                </div>
+
+                <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto]">
+                  <textarea
+                    value={supportReplyDrafts[thread.id] ?? ''}
+                    onChange={(event) =>
+                      updateSupportReplyDraft(thread.id, event.target.value)
+                    }
+                    rows={3}
+                    placeholder="Responder al conductor..."
+                    className="w-full rounded-[1.2rem] border border-slate-200 bg-white px-4 py-3 text-sm leading-6 text-slate-900 outline-none transition focus:border-teal-500 focus:ring-4 focus:ring-teal-100"
+                  />
+                  <div className="flex flex-col gap-3 xl:w-48">
+                    <button
+                      type="button"
+                      onClick={() => handleSupportReply(thread.id)}
+                      disabled={isSubmitting}
+                      className="flex min-h-11 items-center justify-center rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                    >
+                      Responder
+                    </button>
+                    <p className="text-xs leading-5 text-slate-500">
+                      Si respondes una conversacion cerrada, el hilo vuelve a
+                      quedar abierto.
+                    </p>
+                  </div>
+                </div>
+              </article>
+            ))
+          ) : (
+            <p className="text-sm text-slate-600">
+              No hay solicitudes de soporte que coincidan con la busqueda.
+            </p>
+          )}
+        </div>
       </section>
 
       <section className="grid gap-6 xl:grid-cols-2">

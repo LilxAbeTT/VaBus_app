@@ -14,6 +14,10 @@ export type ActiveServiceStatus = 'active' | 'paused' | 'completed'
 
 export type LocationUpdateSource = 'seed' | 'device'
 
+export type SupportThreadStatus = 'open' | 'closed'
+
+export type SupportMessageSenderRole = 'driver' | 'admin'
+
 export interface Coordinates {
   lat: number
   lng: number
@@ -134,6 +138,38 @@ export interface DriverPanelSetupState {
   preferredRouteId?: string
 }
 
+export interface SupportThreadMessage {
+  id: string
+  senderRole: SupportMessageSenderRole
+  senderName: string
+  body: string
+  createdAt: string
+}
+
+export interface DriverSupportThread {
+  id: string
+  driverId: string
+  driverName: string
+  driverEmail: string
+  routeId?: string
+  routeName?: string
+  serviceId?: string
+  status: SupportThreadStatus
+  createdAt: string
+  updatedAt: string
+  lastDriverMessageAt?: string
+  lastAdminMessageAt?: string
+  lastSeenByDriverAt?: string
+  lastSeenByAdminAt?: string
+  hasUnreadForDriver: boolean
+  hasUnreadForAdmin: boolean
+  latestMessageRole?: SupportMessageSenderRole
+  latestMessagePreview?: string
+  messages: SupportThreadMessage[]
+}
+
+export type AdminSupportThread = DriverSupportThread
+
 export interface AdminOperationalService {
   id: string
   routeId: string
@@ -227,6 +263,7 @@ export interface AdminDashboardState {
   drivers: AdminManagedDriver[]
   vehicles: AdminManagedVehicle[]
   alerts: AdminOperationalAlert[]
+  supportThreads: AdminSupportThread[]
   events: AdminSystemEvent[]
 }
 
@@ -237,6 +274,7 @@ export interface AdminManagementCatalogState {
   drivers: AdminManagedDriver[]
   vehicles: AdminManagedVehicle[]
   alerts: AdminOperationalAlert[]
+  supportThreads: AdminSupportThread[]
 }
 
 export interface AdminOperationalFeed {
