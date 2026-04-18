@@ -1,5 +1,9 @@
 import type { TransportType } from '../../src/types/domain.ts'
 import type { ImportedRouteSeed } from '../../convex/data/importedRoutes.ts'
+import {
+  extractRouteDetails,
+  repairPossibleMojibake,
+} from '../../shared/routeDetails.ts'
 import type { ParsedKmlDocument, ParsedKmlPlacemark } from './kml.ts'
 import { getPlacemarkColor } from './kml.ts'
 
@@ -16,6 +20,7 @@ interface RouteFeatureProperties {
   transportType: TransportType
   sourceFile: string
   color: string
+  passengerInfo: ImportedRouteSeed['passengerInfo']
 }
 
 interface RouteFeature {
@@ -29,16 +34,8 @@ interface RouteFeatureCollection {
   features: RouteFeature[]
 }
 
-function repairMojibake(value: string) {
-  if (!/[ÃÂ]/.test(value)) {
-    return value
-  }
-
-  return Buffer.from(value, 'latin1').toString('utf8')
-}
-
 function slugify(value: string) {
-  return repairMojibake(value)
+  return repairPossibleMojibake(value)
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
@@ -47,19 +44,19 @@ function slugify(value: string) {
 }
 
 function buildRouteName(placemark: ParsedKmlPlacemark) {
-  return placemark.folderName || placemark.name
+  return repairPossibleMojibake(placemark.folderName || placemark.name)
 }
 
 function buildDirection(placemark: ParsedKmlPlacemark) {
   if (placemark.name && placemark.name !== placemark.folderName) {
-    return placemark.name
+    return repairPossibleMojibake(placemark.name)
   }
 
   if (placemark.description) {
-    return placemark.description
+    return repairPossibleMojibake(placemark.description)
   }
 
-  return placemark.folderName
+  return repairPossibleMojibake(placemark.folderName)
 }
 
 function buildImportKey(
@@ -102,6 +99,7 @@ export function normalizeImportedRoutes(documents: ParsedKmlDocument[]) {
       )
       const slug = importKey.split(':')[1]
       const color = getPlacemarkColor(document, placemark)
+      const passengerInfo = extractRouteDetails(direction)
 
       const route: ImportedRouteSeed = {
         importKey,
@@ -112,6 +110,7 @@ export function normalizeImportedRoutes(documents: ParsedKmlDocument[]) {
         sourceFile: document.sourceFile,
         status: 'active',
         color,
+        passengerInfo,
         segments: placemark.segments,
       }
 

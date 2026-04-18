@@ -1,4 +1,5 @@
 import type { Doc } from '../_generated/dataModel'
+import { extractRouteDetails } from '../../shared/routeDetails'
 
 type RouteDocument = Doc<'routes'>
 
@@ -40,6 +41,10 @@ export function getRouteImportKey(route: RouteDocument) {
   return route.importKey ?? `legacy:${route.slug}`
 }
 
+export function getRoutePassengerInfo(route: RouteDocument) {
+  return route.passengerInfo ?? extractRouteDetails(route.direction)
+}
+
 export function toRouteListItem(route: RouteDocument) {
   return {
     id: route._id,
@@ -51,6 +56,7 @@ export function toRouteListItem(route: RouteDocument) {
     sourceFile: getRouteSourceFile(route),
     status: route.status,
     color: route.color,
+    passengerInfo: getRoutePassengerInfo(route),
   }
 }
 

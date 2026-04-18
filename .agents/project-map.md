@@ -1,6 +1,6 @@
 # Project Map - CaboBus
 
-Estado real revisado y actualizado el 2026-04-15 sobre el repositorio y el worktree actual.
+Estado real revisado y actualizado el 2026-04-17 sobre el repositorio y el worktree actual.
 
 Esta revision incluye tanto la base web ya funcional como los cambios locales visibles de integracion movil, tracking nativo y soporte HTTP para ubicacion del conductor.
 
@@ -21,7 +21,7 @@ El proyecto ya no esta en fase de bootstrap.
 
 Hoy existe:
 
-- frontend web funcional con React, Router, Tailwind y Leaflet;
+- frontend web funcional con React, Router, Tailwind y MapLibre GL JS;
 - backend operativo en Convex con auth propia minima, servicios, ubicaciones y dashboard admin;
 - mapa publico de pasajero conectado a Convex;
 - login real para conductor y admin con sesiones persistidas en `localStorage`;
@@ -46,7 +46,7 @@ Pendiente o incompleto:
 
 Estas decisiones ya estan reflejadas en codigo y deben tratarse como reglas activas mientras no se redefinan explicitamente:
 
-- stack principal: React + Vite + TypeScript + Tailwind CSS 4 + React Router 7 + Leaflet + Convex;
+- stack principal: React + Vite + TypeScript + Tailwind CSS 4 + React Router 7 + MapLibre GL JS + Stadia Maps + Convex;
 - backend del MVP: Convex;
 - rutas reales importadas desde KML son fuente operativa;
 - pasajero entra sin login;
@@ -67,7 +67,7 @@ Dependencias principales observadas:
 - Tailwind CSS 4
 - React Router 7
 - Convex
-- Leaflet + OpenStreetMap
+- MapLibre GL JS + Stadia Maps
 - Capacitor 8
 - `@capacitor-community/background-geolocation`
 - `@capacitor/preferences`
@@ -91,6 +91,9 @@ Variables de entorno usadas por frontend:
 
 - `VITE_CONVEX_URL`
 - `VITE_CONVEX_SITE_URL`
+- `VITE_STADIA_MAPS_API_KEY`
+- `VITE_STADIA_STYLE_ID`
+- `VITE_MAP_STYLE_URL`
 
 ## 5. Mapa real del repositorio
 
@@ -229,11 +232,14 @@ Archivos clave:
 - `src/features/map/hooks/usePassengerMapSnapshot.ts`
 - `src/features/map/hooks/usePassengerRouteSelection.ts`
 - `src/features/map/hooks/usePassengerGeolocation.ts`
+- `src/lib/mapGeometry.ts`
+- `src/lib/env.ts`
 
 Estado actual:
 
 - consume snapshot real desde Convex;
-- renderiza rutas activas y unidades visibles en Leaflet;
+- renderiza rutas activas y unidades visibles en MapLibre GL JS;
+- usa estilo vectorial de Stadia Maps configurable desde variables de entorno;
 - agrupa rutas por `transportType`;
 - permite enfoque por ruta;
 - mantiene seleccion de ruta en `localStorage`;
@@ -241,13 +247,15 @@ Estado actual:
 - puede filtrar solo rutas con unidades visibles;
 - calcula ruta sugerida por proximidad si el pasajero comparte ubicacion;
 - usa geolocalizacion opcional propia para estimar cercania;
-- muestra estado operativo compartido en badges y marcadores;
+- muestra estado operativo compartido en badges y capas de marcadores;
 - en vista general oculta unidades `probably_stopped`, pero al enfocar una ruta puede seguir mostrando estado degradado.
 
 Notas:
 
 - el mapa del pasajero ya es una vista UX real, no un prototipo minimo;
 - usa `useDeferredValue`, `startTransition` y `useEffectEvent` en la composicion del mapa.
+- el control de zoom nativo de MapLibre se ubica en esquina superior izquierda para no competir con overlays propios del mapa.
+- `src/lib/mapGeometry.ts` concentra helpers compartidos para `LineString`, `Point`, `Polygon` y bounds del mapa.
 
 ### Driver frontend
 
@@ -271,6 +279,7 @@ Estado actual:
 - puede activar, pausar, reanudar y finalizar servicio;
 - puede cambiar su ruta asignada desde el panel;
 - ve un mapa propio de la ruta activa o seleccionada;
+- ese mapa propio ya usa MapLibre GL JS con el mismo estilo base configurado para pasajero;
 - mantiene fallback manual para envio de ubicacion;
 - separa correctamente permiso de ubicacion del arranque del tracking;
 - soporta tracking web y tracking nativo;
@@ -282,6 +291,7 @@ Notas:
 
 - `DriverStatusCard.tsx` concentra buena parte de la orquestacion de UI, tracking y acciones operativas;
 - la preferencia de auto-reanudar compartir ubicacion se guarda por conductor en `localStorage`.
+- `DriverRouteMap.tsx` reutiliza configuracion comun de Stadia Maps via `src/lib/env.ts`.
 
 ### Admin frontend
 
@@ -632,7 +642,7 @@ Movil/tracking:
 Documentacion:
 
 - `README.md` ya esta desactualizado frente al estado real;
-- el `project-map` anterior no reflejaba capa nativa, endpoint HTTP ni `systemEvents`.
+- el `project-map` anterior no reflejaba capa nativa, endpoint HTTP, `systemEvents` ni la migracion de Leaflet a MapLibre GL JS + Stadia Maps.
 
 ## 15. Validacion recomendada
 
@@ -669,7 +679,7 @@ En esta actualizacion documental no se re-ejecutaron:
 - `npm run convex:codegen`
 - `npm run convex:seed`
 
-La revision se baso en inspeccion directa del codigo y del worktree actual del 2026-04-15.
+La revision se baso en inspeccion directa del codigo y del worktree actual del 2026-04-17.
 
 ## 17. Criterio para siguientes chats
 

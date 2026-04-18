@@ -1,10 +1,10 @@
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { BusRoute, TransportType } from '../../../types/domain'
+import type { PassengerRouteGroup } from './passengerMapViewUtils'
 import {
+  formatDistanceRange,
   getTransportTypeLabel,
-  parseRouteDirection,
-  type PassengerRouteGroup,
 } from './passengerMapViewUtils'
 
 function ModalPortal({ children }: { children: ReactNode }) {
@@ -22,12 +22,8 @@ export function PassengerMapEmptyState({
   return (
     <section className="panel px-4 py-5 sm:px-6 sm:py-6">
       <p className="eyebrow">Mapa</p>
-      <h2 className="mt-3 font-display text-xl text-slate-900 sm:text-2xl">
-        {title}
-      </h2>
-      <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
-        {description}
-      </p>
+      <h2 className="mt-3 font-display text-xl text-slate-900 sm:text-2xl">{title}</h2>
+      <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">{description}</p>
     </section>
   )
 }
@@ -36,22 +32,20 @@ export function PassengerMapInfoModal({ onClose }: { onClose: () => void }) {
   return (
     <ModalPortal>
       <div
-        className="fixed inset-0 z-[1400] flex items-center justify-center bg-slate-950/35 p-4 backdrop-blur-[2px]"
+        className="fixed inset-0 z-[1400] flex items-end justify-center bg-slate-950/35 p-4 backdrop-blur-[2px] sm:items-center"
         onClick={onClose}
       >
         <div
           role="dialog"
           aria-modal="true"
           aria-label="Ayuda del mapa"
-          className="panel w-full max-w-sm px-5 py-5"
+          className="panel w-full max-w-md px-5 py-5"
           onClick={(event) => event.stopPropagation()}
         >
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="eyebrow">Ayuda</p>
-              <h2 className="mt-2 font-display text-2xl text-slate-900">
-                Cómo usar el mapa
-              </h2>
+              <h2 className="mt-2 font-display text-2xl text-slate-900">Como usar el mapa</h2>
             </div>
             <button
               type="button"
@@ -64,9 +58,9 @@ export function PassengerMapInfoModal({ onClose }: { onClose: () => void }) {
           </div>
 
           <div className="mt-4 space-y-3 text-sm leading-6 text-slate-600">
-            <p>Usa Rutas para elegir rápidamente una ruta y enfocarla.</p>
-            <p>Usa Mi ubicación para centrar el mapa en tu posición actual.</p>
-            <p>Toca una unidad para ver su estado y la hora de su última señal.</p>
+            <p>Elige una ruta para limpiar el ruido visual y ver solo sus unidades.</p>
+            <p>Si activas ubicacion, CaboBus puede sugerirte rutas cercanas sin obligarte a seguir el mapa todo el tiempo.</p>
+            <p>La lista lateral tambien funciona como vista rapida para usuarios que prefieren leer rutas y unidades.</p>
           </div>
         </div>
       </div>
@@ -81,7 +75,7 @@ export function PassengerRouteInfoModal({
   route: BusRoute
   onClose: () => void
 }) {
-  const routeDetails = parseRouteDirection(route.direction)
+  const routeDetails = route.passengerInfo
 
   return (
     <ModalPortal>
@@ -92,25 +86,21 @@ export function PassengerRouteInfoModal({
         <div
           role="dialog"
           aria-modal="true"
-          aria-label={`Información de ${route.name}`}
+          aria-label={`Informacion de ${route.name}`}
           className="panel w-full max-w-md px-5 py-5"
           onClick={(event) => event.stopPropagation()}
         >
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="eyebrow">Información de ruta</p>
-              <h2 className="mt-2 font-display text-2xl text-slate-900">
-                {route.name}
-              </h2>
-              <p className="mt-2 text-sm text-slate-600">
-                {getTransportTypeLabel(route.transportType)}
-              </p>
+              <p className="eyebrow">Informacion de ruta</p>
+              <h2 className="mt-2 font-display text-2xl text-slate-900">{route.name}</h2>
+              <p className="mt-2 text-sm text-slate-600">{getTransportTypeLabel(route.transportType)}</p>
             </div>
             <button
               type="button"
               onClick={onClose}
               className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
-              aria-label="Cerrar información de ruta"
+              aria-label="Cerrar informacion de ruta"
             >
               X
             </button>
@@ -120,9 +110,7 @@ export function PassengerRouteInfoModal({
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-teal-700">
               Trayecto
             </p>
-            <p className="mt-2 text-sm leading-6 text-slate-700">
-              {routeDetails.summary}
-            </p>
+            <p className="mt-2 text-sm leading-6 text-slate-700">{routeDetails.summary}</p>
           </div>
 
           <div className="mt-4 grid gap-3 sm:grid-cols-3">
@@ -157,8 +145,8 @@ export function PassengerRouteInfoModal({
               Colonias y puntos clave
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
-              {routeDetails.stops.length > 0 ? (
-                routeDetails.stops.map((stop) => (
+              {routeDetails.landmarks.length > 0 ? (
+                routeDetails.landmarks.map((stop) => (
                   <span
                     key={stop}
                     className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700"
@@ -185,6 +173,8 @@ export function PassengerRoutePickerModal({
   routeGroups,
   selectedRouteId,
   routeSearchTerm,
+  routeDistanceById,
+  vehicleStatsByRoute,
   showOnlyRoutesWithVisibleVehicles,
   onClose,
   onRouteSearchTermChange,
@@ -192,12 +182,15 @@ export function PassengerRoutePickerModal({
   onTransportTypeChange,
   onRouteSelect,
   onClearSelection,
+  onClearSearch,
 }: {
   isOpen: boolean
   activeTransportType: TransportType
   routeGroups: PassengerRouteGroup[]
   selectedRouteId: string | null
   routeSearchTerm: string
+  routeDistanceById: Map<string, number | null>
+  vehicleStatsByRoute: Map<string, { visible: number; stopped: number }>
   showOnlyRoutesWithVisibleVehicles: boolean
   onClose: () => void
   onRouteSearchTermChange: (value: string) => void
@@ -205,6 +198,7 @@ export function PassengerRoutePickerModal({
   onTransportTypeChange: (transportType: TransportType) => void
   onRouteSelect: (routeId: string) => void
   onClearSelection: () => void
+  onClearSearch: () => void
 }) {
   if (!isOpen) {
     return null
@@ -218,22 +212,26 @@ export function PassengerRoutePickerModal({
   return (
     <ModalPortal>
       <div
-        className="fixed inset-0 z-[1400] flex items-end justify-center bg-slate-950/35 p-4 backdrop-blur-[2px] sm:items-center"
+        className="fixed inset-0 z-[1400] flex items-end justify-center bg-slate-950/35 p-0 backdrop-blur-[2px] sm:p-4"
         onClick={onClose}
       >
         <div
           role="dialog"
           aria-modal="true"
           aria-label="Seleccionar ruta"
-          className="panel w-full max-w-lg px-4 py-4 sm:px-5 sm:py-5"
+          className="panel max-h-[88svh] w-full max-w-xl rounded-b-none px-4 py-4 sm:max-h-[80svh] sm:rounded-[1.8rem] sm:px-5 sm:py-5"
           onClick={(event) => event.stopPropagation()}
         >
+          <div className="mx-auto mb-3 h-1.5 w-14 rounded-full bg-slate-200 sm:hidden" />
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="eyebrow">Rutas</p>
               <h2 className="mt-2 font-display text-2xl text-slate-900">
                 Elige el tipo y la ruta
               </h2>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                Esta vista esta pensada para encontrar una ruta rapido incluso sin mirar el mapa.
+              </p>
             </div>
             <button
               type="button"
@@ -269,48 +267,76 @@ export function PassengerRoutePickerModal({
                 type="text"
                 value={routeSearchTerm}
                 onChange={(event) => onRouteSearchTermChange(event.target.value)}
-                placeholder="Buscar ruta o trayecto"
+                placeholder="Buscar ruta, colonia o punto clave"
                 className="w-full rounded-[1rem] border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-teal-400"
               />
             </label>
 
-            <button
-              type="button"
-              onClick={onToggleShowOnlyRoutesWithVisibleVehicles}
-              className={`inline-flex min-h-10 items-center justify-center rounded-full px-4 text-sm font-semibold transition ${
-                showOnlyRoutesWithVisibleVehicles
-                  ? 'bg-slate-900 text-white'
-                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-              }`}
-            >
-              {showOnlyRoutesWithVisibleVehicles
-                ? 'Mostrando solo rutas con unidades activas'
-                : 'Mostrar solo rutas con unidades activas'}
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={onToggleShowOnlyRoutesWithVisibleVehicles}
+                className={`inline-flex min-h-10 items-center justify-center rounded-full px-4 text-sm font-semibold transition ${
+                  showOnlyRoutesWithVisibleVehicles
+                    ? 'bg-slate-900 text-white'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                {showOnlyRoutesWithVisibleVehicles
+                  ? 'Solo rutas con unidades visibles'
+                  : 'Mostrar solo rutas con unidades visibles'}
+              </button>
+
+              {routeSearchTerm ? (
+                <button
+                  type="button"
+                  onClick={onClearSearch}
+                  className="inline-flex min-h-10 items-center justify-center rounded-full border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:text-slate-900"
+                >
+                  Limpiar busqueda
+                </button>
+              ) : null}
+            </div>
           </div>
 
-          <div className="mt-4 flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1">
+          <div className="mt-4 max-h-[48svh] space-y-3 overflow-y-auto pr-1">
             {activeGroup?.routes.map((route) => {
               const isSelected = route.id === selectedRouteId
+              const routeStats = vehicleStatsByRoute.get(route.id) ?? { visible: 0, stopped: 0 }
+              const distanceMeters = routeDistanceById.get(route.id) ?? null
 
               return (
                 <button
                   key={route.id}
                   type="button"
                   onClick={() => onRouteSelect(route.id)}
-                  className={`min-w-[200px] snap-start rounded-[1.3rem] border bg-white px-4 py-4 text-left shadow-sm transition ${
+                  className={`w-full rounded-[1.3rem] border bg-white px-4 py-4 text-left shadow-sm transition ${
                     isSelected
                       ? 'border-slate-900 shadow-[0_16px_30px_-24px_rgba(15,23,42,0.6)]'
                       : 'border-slate-200 hover:border-teal-300'
                   }`}
                 >
-                  <span
-                    className="block h-2.5 w-14 rounded-full"
-                    style={{ backgroundColor: route.color }}
-                  />
-                  <span className="mt-3 block font-display text-lg text-slate-900">
-                    {route.name}
-                  </span>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <span
+                        className="block h-2.5 w-14 rounded-full"
+                        style={{ backgroundColor: route.color }}
+                      />
+                      <span className="mt-3 block font-display text-lg text-slate-900">
+                        {route.name}
+                      </span>
+                      <span className="mt-2 line-clamp-2 block text-sm leading-6 text-slate-600">
+                        {route.passengerInfo.summary}
+                      </span>
+                    </div>
+                    <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
+                      {distanceMeters === null
+                        ? `${routeStats.visible} activas`
+                        : distanceMeters <= 600
+                          ? 'Cerca'
+                          : formatDistanceRange(distanceMeters)}
+                    </span>
+                  </div>
                 </button>
               )
             })}

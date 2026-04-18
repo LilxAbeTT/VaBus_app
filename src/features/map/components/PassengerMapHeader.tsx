@@ -70,11 +70,12 @@ export function PassengerMapHeader({
 
         <div className="flex flex-wrap items-center gap-2">
           <span className="rounded-full border border-teal-100 bg-teal-50 px-3 py-1.5 text-xs font-semibold text-teal-800">
-            {activeRoutesCount} ruta{activeRoutesCount === 1 ? '' : 's'} con servicio
+            {activeRoutesCount} ruta{activeRoutesCount === 1 ? '' : 's'} con servicio en esta vista
           </span>
           <span className="rounded-full border border-sky-100 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-800">
             {visibleVehiclesCount} unidad{visibleVehiclesCount === 1 ? '' : 'es'} visible
             {visibleVehiclesCount === 1 ? '' : 's'}
+            {' '}en el mapa
           </span>
           
           {selectedRouteName ? (

@@ -1,4 +1,5 @@
 import type { ServiceOperationalStatus } from '../../shared/tracking'
+import type { PassengerRouteInfo } from '../../shared/routeDetails'
 
 export type UserRole = 'passenger' | 'driver' | 'admin'
 
@@ -49,6 +50,7 @@ export interface BusRoute {
   sourceFile: string
   status: RouteStatus
   color: string
+  passengerInfo: PassengerRouteInfo
   segments: Coordinates[][]
 }
 
@@ -62,6 +64,7 @@ export interface BusRouteListItem {
   sourceFile: string
   status: RouteStatus
   color: string
+  passengerInfo: PassengerRouteInfo
 }
 
 export interface Vehicle {

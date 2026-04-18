@@ -6,6 +6,7 @@ import type {
 } from '../../../types/domain'
 import type { PassengerGeolocationPermissionState } from '../hooks/usePassengerGeolocation'
 import type { ServiceOperationalStatus } from '../../../../shared/tracking'
+import { normalizeTextForSearch, repairPossibleMojibake } from '../../../../shared/routeDetails'
 
 export interface PassengerRouteGroup {
   transportType: TransportType
@@ -26,6 +27,13 @@ export interface PassengerLocationStatusCopy {
 export type PassengerMapVehicleView = PassengerMapVehicle & {
   isVisibleInOverview: boolean
   transportType: TransportType
+}
+
+export interface PassengerQuickRouteEntry {
+  route: BusRoute
+  distanceMeters: number | null
+  visibleVehicles: number
+  stoppedVehicles: number
 }
 
 export function formatLastUpdate(value: string) {
@@ -61,6 +69,19 @@ export function getTransportTypeLabel(transportType: TransportType) {
   return transportType === 'urbano' ? 'Urbano' : 'Colectivo'
 }
 
+export function getOperationalStatusShortLabel(status: ServiceOperationalStatus) {
+  switch (status) {
+    case 'active_recent':
+      return 'Reciente'
+    case 'active_stale':
+      return 'Desactualizada'
+    case 'probably_stopped':
+      return 'Detenida'
+    default:
+      return 'Sin dato'
+  }
+}
+
 export function getSignalBadgeClass(status: ServiceOperationalStatus) {
   switch (status) {
     case 'active_recent':
@@ -71,35 +92,6 @@ export function getSignalBadgeClass(status: ServiceOperationalStatus) {
       return 'bg-rose-100 text-rose-700'
     default:
       return 'bg-slate-100 text-slate-600'
-  }
-}
-
-export function getMarkerStyle(status: ServiceOperationalStatus) {
-  switch (status) {
-    case 'active_stale':
-      return {
-        radius: 9,
-        color: '#b45309',
-        fillColor: '#f59e0b',
-        fillOpacity: 0.92,
-        weight: 3,
-      }
-    case 'probably_stopped':
-      return {
-        radius: 8,
-        color: '#be123c',
-        fillColor: '#fb7185',
-        fillOpacity: 0.78,
-        weight: 3,
-      }
-    default:
-      return {
-        radius: 10,
-        color: '#0f766e',
-        fillColor: '#2dd4bf',
-        fillOpacity: 1,
-        weight: 3,
-      }
   }
 }
 
@@ -116,9 +108,7 @@ export function getRouteGroups(routes: BusRoute[]): PassengerRouteGroup[] {
     .map((transportType) => ({
       transportType,
       label: getTransportTypeLabel(transportType),
-      routes: (groupedRoutes.get(transportType) ?? []).sort((left, right) =>
-        left.name.localeCompare(right.name, 'es'),
-      ),
+      routes: groupedRoutes.get(transportType) ?? [],
     }))
     .filter((group) => group.routes.length > 0)
 }
@@ -130,39 +120,7 @@ export function formatDistanceRange(distanceMeters: number) {
   if (distanceMeters < 1_000) return '600 m a 1 km'
   if (distanceMeters < 2_000) return '1 a 2 km'
   if (distanceMeters < 4_000) return '2 a 4 km'
-  return 'más de 4 km'
-}
-
-export function parseRouteDirection(direction: string) {
-  const normalizedDirection = direction.replace(/\s+/g, ' ').trim()
-  const startTimeMatch = normalizedDirection.match(
-    /Inicio:\s*(.+?)(?=Finaliza:|Frecuencia:|$)/i,
-  )
-  const endTimeMatch = normalizedDirection.match(
-    /Finaliza:\s*(.+?)(?=Frecuencia:|$)/i,
-  )
-  const frequencyMatch = normalizedDirection.match(/Frecuencia:\s*(.+)$/i)
-  const pathSummary = normalizedDirection
-    .replace(/^Trayecto:\s*/i, '')
-    .replace(/Inicio:\s*.+$/i, '')
-    .trim()
-    .replace(/[.,]\s*$/, '')
-
-  const stops = pathSummary
-    .split(/\s+-\s+|,\s*/)
-    .map((stop) => stop.trim())
-    .filter(
-      (stop, index, allStops) =>
-        stop.length > 0 && allStops.indexOf(stop) === index,
-    )
-
-  return {
-    summary: pathSummary,
-    stops,
-    startTime: startTimeMatch?.[1]?.trim() ?? null,
-    endTime: endTimeMatch?.[1]?.trim() ?? null,
-    frequency: frequencyMatch?.[1]?.trim() ?? null,
-  }
+  return 'mas de 4 km'
 }
 
 export function getRouteDistanceTone(distanceMeters: number | null) {
@@ -172,68 +130,86 @@ export function getRouteDistanceTone(distanceMeters: number | null) {
   return 'bg-slate-100 text-slate-600'
 }
 
+function getRouteSearchHaystack(route: BusRoute) {
+  return normalizeTextForSearch(
+    [
+      route.name,
+      route.direction,
+      route.importKey,
+      route.slug,
+      route.passengerInfo.summary,
+      route.passengerInfo.landmarks.join(' '),
+      route.passengerInfo.startTime ?? '',
+      route.passengerInfo.endTime ?? '',
+      route.passengerInfo.frequency ?? '',
+      getTransportTypeLabel(route.transportType),
+    ].join(' '),
+  )
+}
+
 export function routeMatchesSearch(route: BusRoute, searchTerm: string) {
-  const normalizedSearch = searchTerm.trim().toLowerCase()
+  const normalizedSearch = normalizeTextForSearch(searchTerm)
 
   if (!normalizedSearch) {
     return true
   }
 
-  return (
-    route.name.toLowerCase().includes(normalizedSearch) ||
-    route.direction.toLowerCase().includes(normalizedSearch)
-  )
+  return getRouteSearchHaystack(route).includes(normalizedSearch)
 }
 
 export function getLocationStatusCopy({
   permissionState,
   isRequestingPermission,
   errorMessage,
+  isFollowingPosition,
 }: {
   permissionState: PassengerGeolocationPermissionState
   isRequestingPermission: boolean
   errorMessage: string | null
+  isFollowingPosition: boolean
 }): PassengerLocationStatusCopy {
   if (isRequestingPermission) {
     return {
-      title: 'Solicitando tu ubicación',
-      description: 'Acepta el permiso para ver rutas cercanas y ubicarte en el mapa.',
+      title: 'Buscando tu ubicacion',
+      description: 'Acepta el permiso para ver rutas cercanas y centrar tu posicion.',
     }
   }
 
   if (permissionState === 'granted') {
     return {
-      title: 'Tu ubicación está activa',
-      description: 'Las rutas cercanas se calculan en tiempo real según tu posición.',
+      title: isFollowingPosition ? 'Ubicacion en seguimiento' : 'Ubicacion lista',
+      description: isFollowingPosition
+        ? 'El mapa puede seguir tu posicion mientras exploras rutas cercanas.'
+        : 'Tus rutas cercanas se calculan con una lectura reciente de tu posicion.',
     }
   }
 
   if (permissionState === 'denied') {
     return {
-      title: 'La ubicación está bloqueada',
+      title: 'Ubicacion bloqueada',
       description:
         errorMessage ??
-        'Activa el permiso del navegador para ver rutas cercanas y usar el botón de ubicación.',
+        'Activa el permiso del navegador para ver rutas cercanas y usar el boton de ubicacion.',
     }
   }
 
   if (permissionState === 'unsupported') {
     return {
-      title: 'Tu navegador no soporta ubicación',
-      description: 'Puedes seguir usando el mapa, pero no se mostrarán rutas cercanas a ti.',
+      title: 'Ubicacion no disponible',
+      description: 'Puedes seguir usando el mapa y elegir rutas manualmente.',
     }
   }
 
   if (permissionState === 'loading') {
     return {
-      title: 'Ubicando tu posición',
-      description: 'Estamos preparando el permiso y la primera lectura del mapa.',
+      title: 'Preparando ubicacion',
+      description: 'Estamos validando si el navegador puede darte una lectura inicial.',
     }
   }
 
   return {
-    title: 'Ubicación pendiente',
-    description: 'Esperando permiso o una primera lectura de ubicación.',
+    title: 'Activa tu ubicacion',
+    description: 'Con una sola lectura te sugerimos rutas cercanas sin complicar la vista.',
   }
 }
 
@@ -248,6 +224,10 @@ export function decorateVehiclesWithRouteMeta(
   return vehicles.map((vehicle) => {
     return {
       ...vehicle,
+      unitNumber: repairPossibleMojibake(vehicle.unitNumber),
+      label: repairPossibleMojibake(vehicle.label),
+      routeName: repairPossibleMojibake(vehicle.routeName),
+      driverName: repairPossibleMojibake(vehicle.driverName),
       isVisibleInOverview: vehicle.operationalStatus !== 'probably_stopped',
       transportType: routeTransportTypeById.get(vehicle.routeId) ?? 'urbano',
     }
@@ -262,9 +242,7 @@ export function getDisplayedVehicles(
   return vehicles.filter(
     (vehicle) =>
       vehicle.transportType === activeTransportType &&
-      (selectedRouteId
-        ? vehicle.routeId === selectedRouteId
-        : vehicle.isVisibleInOverview),
+      (selectedRouteId ? vehicle.routeId === selectedRouteId : vehicle.isVisibleInOverview),
   )
 }
 
@@ -273,8 +251,7 @@ export function getDisplayedRoutes(
   activeTransportType: TransportType,
 ) {
   return (
-    routeGroups.find((group) => group.transportType === activeTransportType)?.routes ??
-    []
+    routeGroups.find((group) => group.transportType === activeTransportType)?.routes ?? []
   )
 }
 
@@ -291,6 +268,52 @@ export function getVehicleStatsByRoute(vehicles: PassengerMapVehicleView[]) {
   })
 
   return statsByRouteId
+}
+
+function getRouteUtilityScore(
+  route: BusRoute,
+  routeDistanceById: Map<string, number | null>,
+  vehicleStatsByRoute: Map<string, { visible: number; stopped: number }>,
+) {
+  const routeStats = vehicleStatsByRoute.get(route.id) ?? { visible: 0, stopped: 0 }
+  const distanceMeters = routeDistanceById.get(route.id) ?? null
+  const visibleWeight = routeStats.visible * 10_000
+  const stoppedWeight = routeStats.stopped * 1_000
+  const distanceWeight =
+    distanceMeters === null ? 0 : Math.max(0, 5_000 - Math.round(distanceMeters))
+
+  return visibleWeight + stoppedWeight + distanceWeight
+}
+
+export function sortRoutesByUtility(
+  routes: BusRoute[],
+  routeDistanceById: Map<string, number | null>,
+  vehicleStatsByRoute: Map<string, { visible: number; stopped: number }>,
+) {
+  return [...routes].sort((left, right) => {
+    const scoreDifference =
+      getRouteUtilityScore(right, routeDistanceById, vehicleStatsByRoute) -
+      getRouteUtilityScore(left, routeDistanceById, vehicleStatsByRoute)
+
+    if (scoreDifference !== 0) {
+      return scoreDifference
+    }
+
+    const leftDistance = routeDistanceById.get(left.id)
+    const rightDistance = routeDistanceById.get(right.id)
+
+    if (leftDistance !== null && leftDistance !== undefined && rightDistance !== null && rightDistance !== undefined) {
+      if (leftDistance !== rightDistance) {
+        return leftDistance - rightDistance
+      }
+    } else if (leftDistance !== null && leftDistance !== undefined) {
+      return -1
+    } else if (rightDistance !== null && rightDistance !== undefined) {
+      return 1
+    }
+
+    return left.name.localeCompare(right.name, 'es')
+  })
 }
 
 export function getSortedRoutesByDistance(
@@ -321,19 +344,25 @@ export function getRecommendedRouteEntry(
   return routesWithVisibleVehicles[0] ?? routeEntries[0] ?? null
 }
 
-export function getNearbyRoutesCount(
+export function getNearbyQuickRouteEntries(
   routes: BusRoute[],
   routeDistanceById: Map<string, number | null>,
-  maxDistanceMeters = 2_000,
+  vehicleStatsByRoute: Map<string, { visible: number; stopped: number }>,
+  limit = 4,
 ) {
-  return routes.filter((route) => {
-    const distanceMeters = routeDistanceById.get(route.id)
-    return (
-      distanceMeters !== null &&
-      distanceMeters !== undefined &&
-      distanceMeters <= maxDistanceMeters
-    )
-  }).length
+  return sortRoutesByUtility(routes, routeDistanceById, vehicleStatsByRoute)
+    .map((route) => {
+      const stats = vehicleStatsByRoute.get(route.id) ?? { visible: 0, stopped: 0 }
+
+      return {
+        route,
+        distanceMeters: routeDistanceById.get(route.id) ?? null,
+        visibleVehicles: stats.visible,
+        stoppedVehicles: stats.stopped,
+      } satisfies PassengerQuickRouteEntry
+    })
+    .filter((entry) => entry.visibleVehicles > 0 || entry.distanceMeters !== null)
+    .slice(0, limit)
 }
 
 export function getFeaturedVehicle(
@@ -384,12 +413,4 @@ function getDistanceBetweenPointsMeters(first: Coordinates, second: Coordinates)
 
 function degreesToRadians(value: number) {
   return (value * Math.PI) / 180
-}
-
-export function getRouteBoundsPoints(routes: BusRoute[]) {
-  return routes.flatMap((route) =>
-    route.segments.flatMap((segment) =>
-      segment.map((point) => [point.lat, point.lng] as [number, number]),
-    ),
-  )
 }

@@ -1,4 +1,4 @@
-import {
+﻿import {
   startTransition,
   useDeferredValue,
   useEffect,
@@ -7,24 +7,45 @@ import {
   useRef,
   useState,
 } from 'react'
-import L from 'leaflet'
-import { convexUrl } from '../../../lib/env'
+import { useSearchParams } from 'react-router'
+import maplibregl, { type GeoJSONSource, type MapGeoJSONFeature, type MapLayerMouseEvent } from 'maplibre-gl'
+import type {
+  Feature,
+  FeatureCollection,
+  Geometry,
+  MultiLineString,
+  Point,
+  Polygon,
+} from 'geojson'
+import {
+  convexUrl,
+  mapAttribution,
+  mapInitialCenter,
+  mapInitialZoom,
+  mapMaxZoom,
+  mapStyleUrl,
+} from '../../../lib/env'
 import { useCurrentTime } from '../../../hooks/useCurrentTime'
+import {
+  buildCirclePolygon,
+  getBoundsFromPoints,
+  type LatLngPoint,
+} from '../../../lib/mapGeometry'
 import {
   getMinimumDistanceToRouteMeters,
   getOperationalStatusLabel,
 } from '../../../lib/trackingSignal'
-import type { PassengerMapSnapshot, TransportType } from '../../../types/domain'
-import { usePassengerRouteSelection } from '../hooks/usePassengerRouteSelection'
-import { usePassengerMapSnapshot } from '../hooks/usePassengerMapSnapshot'
+import type { BusRoute, PassengerMapSnapshot, TransportType } from '../../../types/domain'
 import { usePassengerGeolocation } from '../hooks/usePassengerGeolocation'
+import { usePassengerMapSnapshot } from '../hooks/usePassengerMapSnapshot'
+import { usePassengerRouteSelection } from '../hooks/usePassengerRouteSelection'
+import { PassengerMapHeader } from './PassengerMapHeader'
 import {
   PassengerMapEmptyState,
   PassengerMapInfoModal,
   PassengerRouteInfoModal,
   PassengerRoutePickerModal,
 } from './PassengerMapOverlays'
-import { PassengerMapHeader } from './PassengerMapHeader'
 import { PassengerMapSidebar } from './PassengerMapSidebar'
 import {
   decorateVehiclesWithRouteMeta,
@@ -34,20 +55,209 @@ import {
   getDisplayedRoutes,
   getDisplayedVehicles,
   getFeaturedVehicle,
+  getNearbyQuickRouteEntries,
   getLocationStatusCopy,
-  getMarkerStyle,
   getRecommendedRouteEntry,
-  getRouteBoundsPoints,
   getRouteGroups,
   getSignalBadgeClass,
   getSortedRoutesByDistance,
   getTransportTypeLabel,
   getVehicleStatsByRoute,
   routeMatchesSearch,
+  sortRoutesByUtility,
+  type PassengerMapVehicleView,
 } from './passengerMapViewUtils'
 
+const ROUTES_SOURCE_ID = 'passenger-map-routes'
+const ROUTES_CASING_LAYER_ID = 'passenger-map-routes-casing'
+const ROUTES_LAYER_ID = 'passenger-map-routes'
+const VEHICLES_SOURCE_ID = 'passenger-map-vehicles'
+const VEHICLE_HALO_LAYER_ID = 'passenger-map-vehicle-halo'
+const VEHICLES_LAYER_ID = 'passenger-map-vehicles'
+const SELECTED_VEHICLE_SOURCE_ID = 'passenger-map-selected-vehicle'
+const USER_SOURCE_ID = 'passenger-map-user'
+const USER_ACCURACY_SOURCE_ID = 'passenger-map-user-accuracy-source'
+const USER_ACCURACY_LAYER_ID = 'passenger-map-user-accuracy'
+const USER_POSITION_LAYER_ID = 'passenger-map-user-position'
 const PASSENGER_MAP_REFRESH_INTERVAL_MS = 15_000
 const PASSENGER_MAP_RELATIVE_TIME_INTERVAL_MS = 30_000
+
+type RouteFeatureProperties = {
+  color: string
+  lineOpacity: number
+  lineWidth: number
+  casingOpacity: number
+  casingWidth: number
+}
+
+type VehicleFeatureProperties = {
+  vehicleId: string
+  isSelected: boolean
+  operationalStatus: PassengerMapVehicleView['operationalStatus']
+}
+
+type UserFeatureProperties = {
+  kind: 'position' | 'accuracy'
+}
+
+function emptyFeatureCollection(): FeatureCollection<Geometry> {
+  return { type: 'FeatureCollection', features: [] }
+}
+
+function toLngLat(point: LatLngPoint): [number, number] {
+  return [point.lng, point.lat]
+}
+
+function getRouteBounds(routes: BusRoute[]) {
+  return getBoundsFromPoints(
+    routes.flatMap((route) => route.segments.flatMap((segment) => segment)),
+  )
+}
+
+function buildRouteFeatureCollection(
+  routes: BusRoute[],
+  selectedRouteId: string | null,
+): FeatureCollection<MultiLineString, RouteFeatureProperties> {
+  const hasSelectedRoute = Boolean(selectedRouteId)
+
+  return {
+    type: 'FeatureCollection',
+    features: routes.flatMap((route) => {
+      const coordinates = route.segments
+        .map((segment) => segment.map(toLngLat))
+        .filter((segment) => segment.length > 0)
+
+      if (coordinates.length === 0) return []
+
+      const isSelected = route.id === selectedRouteId
+      const isSecondary = hasSelectedRoute && !isSelected
+
+      return [
+        {
+          type: 'Feature',
+          id: route.id,
+          geometry: { type: 'MultiLineString', coordinates },
+          properties: {
+            color: route.color,
+            lineOpacity: hasSelectedRoute ? (isSelected ? 0.98 : 0.28) : 0.82,
+            lineWidth: hasSelectedRoute ? (isSelected ? 7 : 4) : 4,
+            casingOpacity: isSelected ? 0.24 : isSecondary ? 0.06 : 0.14,
+            casingWidth: hasSelectedRoute ? (isSelected ? 11 : 7) : 7,
+          },
+        } satisfies Feature<MultiLineString, RouteFeatureProperties>,
+      ]
+    }),
+  }
+}
+
+function buildVehicleFeatureCollection(
+  vehicles: PassengerMapVehicleView[],
+  selectedVehicleId: string | null,
+): FeatureCollection<Point, VehicleFeatureProperties> {
+  return {
+    type: 'FeatureCollection',
+    features: vehicles.map((vehicle) => ({
+      type: 'Feature',
+      id: vehicle.id,
+      geometry: { type: 'Point', coordinates: toLngLat(vehicle.position) },
+      properties: {
+        vehicleId: vehicle.id,
+        isSelected: vehicle.id === selectedVehicleId,
+        operationalStatus: vehicle.operationalStatus,
+      },
+    })),
+  }
+}
+
+function buildSelectedVehicleFeatureCollection(
+  vehicle: PassengerMapVehicleView | null,
+): FeatureCollection<Point, VehicleFeatureProperties> {
+  if (!vehicle) {
+    return { type: 'FeatureCollection', features: [] }
+  }
+
+  return {
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature',
+        id: vehicle.id,
+        geometry: { type: 'Point', coordinates: toLngLat(vehicle.position) },
+        properties: {
+          vehicleId: vehicle.id,
+          isSelected: true,
+          operationalStatus: vehicle.operationalStatus,
+        },
+      },
+    ],
+  }
+}
+
+function buildAccuracyFeatureCollection(
+  position: LatLngPoint | null,
+  accuracyMeters: number | null,
+): FeatureCollection<Polygon, UserFeatureProperties> {
+  if (!position || !accuracyMeters || accuracyMeters <= 0) {
+    return { type: 'FeatureCollection', features: [] }
+  }
+
+  return {
+    type: 'FeatureCollection',
+    features: [
+      {
+        ...buildCirclePolygon(position, Math.min(accuracyMeters, 600)),
+        id: 'user-accuracy',
+        properties: { kind: 'accuracy' },
+      },
+    ],
+  }
+}
+
+function buildUserFeatureCollection(
+  position: LatLngPoint | null,
+  accuracyMeters: number | null,
+): FeatureCollection<Geometry, UserFeatureProperties> {
+  if (!position) return { type: 'FeatureCollection', features: [] }
+
+  const features: Array<Feature<Point | Polygon, UserFeatureProperties>> = [
+    {
+      type: 'Feature',
+      id: 'user-position',
+      geometry: { type: 'Point', coordinates: toLngLat(position) },
+      properties: { kind: 'position' },
+    },
+  ]
+
+  if (accuracyMeters && accuracyMeters > 0) {
+    features.push({
+      ...buildCirclePolygon(position, Math.min(accuracyMeters, 600)),
+      id: 'user-accuracy',
+      properties: { kind: 'accuracy' },
+    })
+  }
+
+  return { type: 'FeatureCollection', features }
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
+}
+
+function createVehiclePopupHtml(vehicle: PassengerMapVehicleView) {
+  return `
+    <div class="space-y-1">
+      <p class="text-sm font-semibold text-slate-900">${escapeHtml(vehicle.unitNumber)}</p>
+      <p class="text-sm text-slate-600">${escapeHtml(vehicle.routeName)}</p>
+      <p class="text-xs font-semibold uppercase tracking-[0.18em] text-teal-700">${escapeHtml(getOperationalStatusLabel(vehicle.operationalStatus))}</p>
+      <p class="text-xs text-slate-500">Actualizado: ${escapeHtml(formatLastUpdate(vehicle.lastUpdate))}</p>
+    </div>
+  `.trim()
+}
 
 function LocationTargetIcon() {
   return (
@@ -70,23 +280,15 @@ function LocationTargetIcon() {
   )
 }
 
-function PassengerMapContent({
-  snapshot,
-}: {
-  snapshot: PassengerMapSnapshot
-}) {
+function PassengerMapContent({ snapshot }: { snapshot: PassengerMapSnapshot }) {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const requestedRouteId = searchParams.get('route')
   const routes = snapshot.routes
   const currentTimeMs = useCurrentTime(PASSENGER_MAP_RELATIVE_TIME_INTERVAL_MS)
   const routeGroups = useMemo(() => getRouteGroups(routes), [routes])
-  const {
-    hasHydratedSelection,
-    selectedRouteId,
-    setSelectedRouteId,
-    clearSelectedRoute,
-  } = usePassengerRouteSelection(routes)
-  const selectedRoute =
-    routes.find((route) => route.id === selectedRouteId) ?? null
-
+  const { hasHydratedSelection, selectedRouteId, setSelectedRouteId, clearSelectedRoute } =
+    usePassengerRouteSelection(routes, requestedRouteId)
+  const selectedRoute = routes.find((route) => route.id === selectedRouteId) ?? null
   const [routeCarouselTransportType, setRouteCarouselTransportType] =
     useState<TransportType>(routeGroups[0]?.transportType ?? 'urbano')
   const [hasTransportTypeFilter, setHasTransportTypeFilter] = useState(false)
@@ -99,16 +301,19 @@ function PassengerMapContent({
   const [routeInfoRouteId, setRouteInfoRouteId] = useState<string | null>(null)
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null)
   const [centerOnUserRequestCount, setCenterOnUserRequestCount] = useState(0)
-
+  const [mapLoadStatus, setMapLoadStatus] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [mapLoadError, setMapLoadError] = useState<string | null>(null)
   const {
     permissionState,
     isRequestingPermission,
+    isFollowingPosition,
     position: userPosition,
     accuracyMeters,
     errorMessage: userLocationError,
     requestPermission,
+    startFollowingPosition,
+    stopFollowingPosition,
   } = usePassengerGeolocation()
-
   const vehiclesWithRouteMeta = useMemo(
     () => decorateVehiclesWithRouteMeta(snapshot.activeVehicles, routes),
     [routes, snapshot.activeVehicles],
@@ -117,30 +322,6 @@ function PassengerMapContent({
     () => getVehicleStatsByRoute(vehiclesWithRouteMeta),
     [vehiclesWithRouteMeta],
   )
-
-  const resolvedRouteCarouselTransportType = routeGroups.some(
-    (group) => group.transportType === routeCarouselTransportType,
-  )
-    ? routeCarouselTransportType
-    : routeGroups[0]?.transportType ?? 'urbano'
-
-  const activeTransportType =
-    selectedRoute?.transportType ?? resolvedRouteCarouselTransportType
-
-  const displayedRoutes = useMemo(
-    () => getDisplayedRoutes(routeGroups, activeTransportType),
-    [activeTransportType, routeGroups],
-  )
-  const displayedVehicles = useMemo(
-    () =>
-      getDisplayedVehicles(
-        vehiclesWithRouteMeta,
-        activeTransportType,
-        selectedRoute?.id,
-      ),
-    [activeTransportType, selectedRoute?.id, vehiclesWithRouteMeta],
-  )
-
   const routeDistanceById = useMemo(() => {
     const distances = new Map<string, number | null>()
 
@@ -155,6 +336,37 @@ function PassengerMapContent({
 
     return distances
   }, [routes, userPosition])
+  const routeGroupsByUtility = useMemo(
+    () =>
+      routeGroups.map((group) => ({
+        ...group,
+        routes: sortRoutesByUtility(group.routes, routeDistanceById, vehicleStatsByRoute),
+      })),
+    [routeDistanceById, routeGroups, vehicleStatsByRoute],
+  )
+
+  const resolvedRouteCarouselTransportType = routeGroups.some(
+    (group) => group.transportType === routeCarouselTransportType,
+  )
+    ? routeCarouselTransportType
+    : routeGroups[0]?.transportType ?? 'urbano'
+
+  const activeTransportType =
+    selectedRoute?.transportType ?? resolvedRouteCarouselTransportType
+
+  const displayedRoutes = useMemo(
+    () => getDisplayedRoutes(routeGroupsByUtility, activeTransportType),
+    [activeTransportType, routeGroupsByUtility],
+  )
+  const displayedVehicles = useMemo(
+    () =>
+      getDisplayedVehicles(
+        vehiclesWithRouteMeta,
+        activeTransportType,
+        selectedRoute?.id,
+      ),
+    [activeTransportType, selectedRoute?.id, vehiclesWithRouteMeta],
+  )
 
   const sortedRoutesByDistance = useMemo(
     () => getSortedRoutesByDistance(routes, routeDistanceById),
@@ -163,7 +375,7 @@ function PassengerMapContent({
 
   const filteredRouteGroups = useMemo(
     () =>
-      routeGroups.map((group) => ({
+      routeGroupsByUtility.map((group) => ({
         ...group,
         routes: group.routes.filter(
           (route) =>
@@ -172,7 +384,12 @@ function PassengerMapContent({
               (vehicleStatsByRoute.get(route.id)?.visible ?? 0) > 0),
         ),
       })),
-    [deferredRouteSearchTerm, routeGroups, showOnlyRoutesWithVisibleVehicles, vehicleStatsByRoute],
+    [
+      deferredRouteSearchTerm,
+      routeGroupsByUtility,
+      showOnlyRoutesWithVisibleVehicles,
+      vehicleStatsByRoute,
+    ],
   )
   const filteredActiveRouteGroup =
     filteredRouteGroups.find((group) => group.transportType === activeTransportType) ??
@@ -205,13 +422,21 @@ function PassengerMapContent({
     () => getRecommendedRouteEntry(filteredRoutesByDistance, vehicleStatsByRoute),
     [filteredRoutesByDistance, vehicleStatsByRoute],
   )
-
+  const nearbyRoutes = useMemo(
+    () =>
+      getNearbyQuickRouteEntries(
+        filteredActiveRouteGroup?.routes ?? [],
+        routeDistanceById,
+        vehicleStatsByRoute,
+      ),
+    [filteredActiveRouteGroup?.routes, routeDistanceById, vehicleStatsByRoute],
+  )
   const locationStatusCopy = getLocationStatusCopy({
     permissionState,
     isRequestingPermission,
     errorMessage: userLocationError,
+    isFollowingPosition,
   })
-
   const selectedRouteVehicles = useMemo(
     () =>
       selectedRoute
@@ -219,7 +444,25 @@ function PassengerMapContent({
         : displayedVehicles,
     [displayedVehicles, selectedRoute],
   )
+  const sortedSelectedRouteVehicles = useMemo(
+    () =>
+      [...selectedRouteVehicles].sort((left, right) => {
+        const statusRank = (status: PassengerMapVehicleView['operationalStatus']) => {
+          if (status === 'active_recent') return 0
+          if (status === 'active_stale') return 1
+          return 2
+        }
 
+        const byStatus = statusRank(left.operationalStatus) - statusRank(right.operationalStatus)
+
+        if (byStatus !== 0) {
+          return byStatus
+        }
+
+        return new Date(right.lastUpdate).getTime() - new Date(left.lastUpdate).getTime()
+      }),
+    [selectedRouteVehicles],
+  )
   const selectedVehicle =
     displayedVehicles.find((vehicle) => vehicle.id === selectedVehicleId) ?? null
   const featuredVehicle = useMemo(
@@ -235,36 +478,28 @@ function PassengerMapContent({
   const selectedRouteDistanceMeters = selectedRoute
     ? routeDistanceById.get(selectedRoute.id) ?? null
     : null
-  const routeBoundsPoints = useMemo(
-    () => getRouteBoundsPoints(selectedRoute ? [selectedRoute] : displayedRoutes),
-    [displayedRoutes, selectedRoute],
-  )
   const routeInfoRoute =
     routes.find((route) => route.id === routeInfoRouteId) ?? null
   const visibleVehiclesCount = selectedRoute
     ? selectedRouteVehicles.length
     : displayedVehicles.length
-  const activeRoutesCount = filteredActiveRouteGroup?.routes.filter(
-    (route) => (vehicleStatsByRoute.get(route.id)?.visible ?? 0) > 0,
-  ).length
+  const activeRoutesCount = filteredActiveRouteGroup
+    ? filteredActiveRouteGroup.routes.filter(
+        (route) => (vehicleStatsByRoute.get(route.id)?.visible ?? 0) > 0,
+      ).length
+    : 0
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
   const mapPanelRef = useRef<HTMLElement | null>(null)
-  const mapRef = useRef<L.Map | null>(null)
-  const routeLayerRef = useRef<L.LayerGroup | null>(null)
-  const vehicleLayerRef = useRef<L.LayerGroup | null>(null)
-  const userLayerRef = useRef<L.LayerGroup | null>(null)
-  const vehicleMarkerByIdRef = useRef(new Map<string, L.CircleMarker>())
-  const selectedVehicleHighlightRef = useRef<L.Circle | null>(null)
+  const mapRef = useRef<maplibregl.Map | null>(null)
+  const popupRef = useRef<maplibregl.Popup | null>(null)
   const didFitInitialViewRef = useRef(false)
   const lastFittedViewKeyRef = useRef<string | null>(null)
 
   function focusRoute(routeId: string) {
     const route = routes.find((currentRoute) => currentRoute.id === routeId)
 
-    if (!route) {
-      return
-    }
+    if (!route) return
 
     setRouteCarouselTransportType(route.transportType)
     setSelectedVehicleId(null)
@@ -272,10 +507,7 @@ function PassengerMapContent({
   }
 
   function revealMapPanel() {
-    mapPanelRef.current?.scrollIntoView({
-      behavior: 'smooth',
-      block: 'start',
-    })
+    mapPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
   function focusRouteAndRevealMap(routeId: string) {
@@ -283,14 +515,30 @@ function PassengerMapContent({
     revealMapPanel()
   }
 
+  function openVehiclePopup(vehicle: PassengerMapVehicleView) {
+    const map = mapRef.current
+
+    if (!map) {
+      return
+    }
+
+    popupRef.current?.remove()
+    popupRef.current = new maplibregl.Popup({
+      closeButton: true,
+      closeOnClick: true,
+      offset: 18,
+    })
+      .setLngLat([vehicle.position.lng, vehicle.position.lat])
+      .setHTML(createVehiclePopupHtml(vehicle))
+      .addTo(map)
+  }
+
   function focusVehicle(vehicleId: string) {
-    const vehicle = snapshot.activeVehicles.find(
+    const vehicle = vehiclesWithRouteMeta.find(
       (currentVehicle) => currentVehicle.id === vehicleId,
     )
 
-    if (!vehicle) {
-      return
-    }
+    if (!vehicle) return
 
     const vehicleRoute = routes.find((route) => route.id === vehicle.routeId)
 
@@ -301,24 +549,29 @@ function PassengerMapContent({
     }
 
     setSelectedVehicleId(vehicle.id)
-
-    const map = mapRef.current
-
-    if (!map) {
-      return
-    }
-
-    map.flyTo([vehicle.position.lat, vehicle.position.lng], Math.max(map.getZoom(), 15), {
+    mapRef.current?.flyTo({
+      center: [vehicle.position.lng, vehicle.position.lat],
+      zoom: 15,
       duration: 0.55,
     })
-
-    window.setTimeout(() => {
-      vehicleMarkerByIdRef.current.get(vehicle.id)?.openPopup()
-    }, 180)
   }
 
-  const handleVehicleMarkerClick = useEffectEvent((vehicleId: string) => {
-    focusVehicle(vehicleId)
+  const handleVehicleLayerClick = useEffectEvent((event: MapLayerMouseEvent) => {
+    const feature = event.features?.[0] as MapGeoJSONFeature | undefined
+    const vehicleId = feature?.properties?.vehicleId
+
+    if (typeof vehicleId === 'string') {
+      focusVehicle(vehicleId)
+    }
+  })
+
+  const handleRouteLayerClick = useEffectEvent((event: MapLayerMouseEvent) => {
+    const feature = event.features?.[0] as MapGeoJSONFeature | undefined
+    const routeId = feature?.id ?? feature?.properties?.routeId
+
+    if (typeof routeId === 'string') {
+      focusRouteAndRevealMap(routeId)
+    }
   })
 
   function handleTransportTypeChange(transportType: TransportType) {
@@ -341,210 +594,271 @@ function PassengerMapContent({
   }
 
   useEffect(() => {
-    if (!mapContainerRef.current || mapRef.current) {
+    if (!requestedRouteId) {
       return
     }
 
-    const vehicleMarkerById = vehicleMarkerByIdRef.current
-    const map = L.map(mapContainerRef.current, {
-      scrollWheelZoom: false,
-      touchZoom: true,
-      doubleClickZoom: true,
-      zoomControl: false,
+    const nextSearchParams = new URLSearchParams(searchParams)
+    nextSearchParams.delete('route')
+    setSearchParams(nextSearchParams, { replace: true })
+  }, [requestedRouteId, searchParams, setSearchParams])
+
+  useEffect(() => {
+    if (!mapContainerRef.current || mapRef.current) return
+
+    const map = new maplibregl.Map({
+      container: mapContainerRef.current,
+      style: mapStyleUrl,
+      center: mapInitialCenter,
+      zoom: mapInitialZoom,
+      maxZoom: mapMaxZoom,
+      attributionControl: false,
+      dragRotate: false,
+      pitchWithRotate: false,
+      touchPitch: false,
+      scrollZoom: false,
     })
 
+    const handleLoad = () => {
+      setMapLoadStatus('ready')
+      setMapLoadError(null)
+    }
+    const handleError = () => {
+      setMapLoadStatus('error')
+      setMapLoadError('No fue posible cargar el mapa base configurado.')
+    }
+    const resizeMap = () => map.resize()
+
     mapRef.current = map
-    routeLayerRef.current = L.layerGroup().addTo(map)
-    vehicleLayerRef.current = L.layerGroup().addTo(map)
-    userLayerRef.current = L.layerGroup().addTo(map)
-
-    L.control.zoom({ position: 'topright' }).addTo(map)
-
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '&copy; OpenStreetMap contributors',
-    }).addTo(map)
-
-    map.setView([23.058, -109.701], 13)
+      map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left')
+    map.addControl(
+      new maplibregl.AttributionControl({
+        compact: true,
+        customAttribution: mapAttribution,
+      }),
+      'bottom-right',
+    )
+    map.on('load', handleLoad)
+    map.on('error', handleError)
+    window.addEventListener('resize', resizeMap)
 
     return () => {
+      popupRef.current?.remove()
+      popupRef.current = null
+      window.removeEventListener('resize', resizeMap)
+      map.off('load', handleLoad)
+      map.off('error', handleError)
       map.remove()
       mapRef.current = null
-      routeLayerRef.current = null
-      vehicleLayerRef.current = null
-      userLayerRef.current = null
-      vehicleMarkerById.clear()
-      selectedVehicleHighlightRef.current = null
+      setMapLoadStatus('loading')
     }
   }, [])
 
   useEffect(() => {
-    const routeLayer = routeLayerRef.current
+    const map = mapRef.current
+    if (!map || mapLoadStatus !== 'ready') return
 
-    if (!routeLayer) {
-      return
+    if (!map.getSource(ROUTES_SOURCE_ID)) {
+      map.addSource(ROUTES_SOURCE_ID, {
+        type: 'geojson',
+        data: emptyFeatureCollection(),
+      })
+      map.addLayer({
+        id: ROUTES_CASING_LAYER_ID,
+        type: 'line',
+        source: ROUTES_SOURCE_ID,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': '#082f49',
+          'line-width': ['coalesce', ['get', 'casingWidth'], 7],
+          'line-opacity': ['coalesce', ['get', 'casingOpacity'], 0.14],
+        },
+      })
+      map.addLayer({
+        id: ROUTES_LAYER_ID,
+        type: 'line',
+        source: ROUTES_SOURCE_ID,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': ['coalesce', ['get', 'color'], '#0f766e'],
+          'line-width': ['coalesce', ['get', 'lineWidth'], 4],
+          'line-opacity': ['coalesce', ['get', 'lineOpacity'], 0.82],
+        },
+      })
+      map.on('mouseenter', ROUTES_LAYER_ID, () => {
+        map.getCanvas().style.cursor = 'pointer'
+      })
+      map.on('mouseleave', ROUTES_LAYER_ID, () => {
+        map.getCanvas().style.cursor = ''
+      })
+      map.on('click', ROUTES_LAYER_ID, handleRouteLayerClick)
     }
 
-    routeLayer.clearLayers()
-
-    displayedRoutes.forEach((route) => {
-      const isSelectedRoute = route.id === selectedRoute?.id
-      const isSecondaryRoute = Boolean(selectedRoute) && !isSelectedRoute
-
-      route.segments.forEach((segment) => {
-        const path = segment.map((point) => [point.lat, point.lng] as [number, number])
-
-        if (path.length === 0) {
-          return
-        }
-
-        L.polyline(path, {
-          color: isSecondaryRoute ? '#94a3b8' : route.color,
-          weight: selectedRoute ? (isSelectedRoute ? 7 : 4) : 4,
-          opacity: selectedRoute ? (isSelectedRoute ? 0.98 : 0.3) : 0.78,
-          interactive: false,
-        })
-          .addTo(routeLayer)
+    if (!map.getSource(VEHICLES_SOURCE_ID)) {
+      map.addSource(VEHICLES_SOURCE_ID, {
+        type: 'geojson',
+        data: emptyFeatureCollection(),
       })
-    })
-  }, [displayedRoutes, selectedRoute])
+      map.addSource(SELECTED_VEHICLE_SOURCE_ID, {
+        type: 'geojson',
+        data: emptyFeatureCollection(),
+      })
+      map.addLayer({
+        id: VEHICLE_HALO_LAYER_ID,
+        type: 'circle',
+        source: SELECTED_VEHICLE_SOURCE_ID,
+        paint: {
+          'circle-radius': 25,
+          'circle-color': '#cbd5f5',
+          'circle-opacity': 0.24,
+        },
+      })
+      map.addLayer({
+        id: VEHICLES_LAYER_ID,
+        type: 'circle',
+        source: VEHICLES_SOURCE_ID,
+        paint: {
+          'circle-radius': [
+            'match',
+            ['get', 'operationalStatus'],
+            'active_recent',
+            10,
+            'active_stale',
+            9,
+            8,
+          ],
+          'circle-color': [
+            'match',
+            ['get', 'operationalStatus'],
+            'active_recent',
+            '#2dd4bf',
+            'active_stale',
+            '#f59e0b',
+            '#fb7185',
+          ],
+          'circle-stroke-color': [
+            'case',
+            ['boolean', ['get', 'isSelected'], false],
+            '#0f172a',
+            '#0f766e',
+          ],
+          'circle-stroke-width': [
+            'case',
+            ['boolean', ['get', 'isSelected'], false],
+            4,
+            3,
+          ],
+          'circle-opacity': [
+            'case',
+            ['==', ['get', 'operationalStatus'], 'probably_stopped'],
+            0.84,
+            1,
+          ],
+        },
+      })
+      map.addLayer({
+        id: `${SELECTED_VEHICLE_SOURCE_ID}-circle`,
+        type: 'circle',
+        source: SELECTED_VEHICLE_SOURCE_ID,
+        paint: {
+          'circle-radius': 14,
+          'circle-color': '#2dd4bf',
+          'circle-stroke-color': '#0f172a',
+          'circle-stroke-width': 4,
+        },
+      })
+      map.on('mouseenter', VEHICLES_LAYER_ID, () => {
+        map.getCanvas().style.cursor = 'pointer'
+      })
+      map.on('mouseleave', VEHICLES_LAYER_ID, () => {
+        map.getCanvas().style.cursor = ''
+      })
+      map.on('click', VEHICLES_LAYER_ID, handleVehicleLayerClick)
+      map.on('click', `${SELECTED_VEHICLE_SOURCE_ID}-circle`, handleVehicleLayerClick)
+    }
+
+    if (!map.getSource(USER_SOURCE_ID)) {
+      map.addSource(USER_SOURCE_ID, {
+        type: 'geojson',
+        data: emptyFeatureCollection(),
+      })
+      map.addSource(USER_ACCURACY_SOURCE_ID, {
+        type: 'geojson',
+        data: emptyFeatureCollection(),
+      })
+      map.addLayer({
+        id: USER_ACCURACY_LAYER_ID,
+        type: 'fill',
+        source: USER_ACCURACY_SOURCE_ID,
+        paint: {
+          'fill-color': '#93c5fd',
+          'fill-opacity': 0.12,
+          'fill-outline-color': '#60a5fa',
+        },
+      })
+      map.addLayer({
+        id: USER_POSITION_LAYER_ID,
+        type: 'circle',
+        source: USER_SOURCE_ID,
+        paint: {
+          'circle-radius': 8,
+          'circle-color': '#60a5fa',
+          'circle-stroke-color': '#1d4ed8',
+          'circle-stroke-width': 3,
+        },
+      })
+    }
+  }, [mapLoadStatus])
 
   useEffect(() => {
-    const vehicleLayer = vehicleLayerRef.current
+    if (mapLoadStatus !== 'ready') return
 
-    if (!vehicleLayer) {
-      return
-    }
+    ;(mapRef.current?.getSource(ROUTES_SOURCE_ID) as GeoJSONSource | undefined)?.setData(
+      buildRouteFeatureCollection(displayedRoutes, selectedRoute?.id ?? null),
+    )
+    ;(mapRef.current?.getSource(VEHICLES_SOURCE_ID) as GeoJSONSource | undefined)?.setData(
+      buildVehicleFeatureCollection(displayedVehicles, selectedVehicleId),
+    )
+    ;(mapRef.current?.getSource(SELECTED_VEHICLE_SOURCE_ID) as GeoJSONSource | undefined)?.setData(
+      buildSelectedVehicleFeatureCollection(selectedVehicle),
+    )
+    ;(mapRef.current?.getSource(USER_SOURCE_ID) as GeoJSONSource | undefined)?.setData(
+      buildUserFeatureCollection(userPosition, null),
+    )
+    ;(mapRef.current?.getSource(USER_ACCURACY_SOURCE_ID) as GeoJSONSource | undefined)?.setData(
+      buildAccuracyFeatureCollection(userPosition, accuracyMeters),
+    )
+  }, [accuracyMeters, displayedRoutes, displayedVehicles, mapLoadStatus, selectedRoute?.id, selectedVehicle, selectedVehicleId, userPosition])
 
-    const markerById = vehicleMarkerByIdRef.current
-    const nextVehicleIds = new Set(displayedVehicles.map((vehicle) => vehicle.id))
-
-    markerById.forEach((marker, vehicleId) => {
-      if (!nextVehicleIds.has(vehicleId)) {
-        vehicleLayer.removeLayer(marker)
-        markerById.delete(vehicleId)
-      }
-    })
-
-    displayedVehicles.forEach((vehicle) => {
-      const isSelectedVehicle = vehicle.id === selectedVehicleId
-      const markerStyle = isSelectedVehicle
-        ? {
-            ...getMarkerStyle(vehicle.operationalStatus),
-            radius: 14,
-            weight: 4,
-            color: '#0f172a',
-            fillOpacity: 1,
-          }
-        : getMarkerStyle(vehicle.operationalStatus)
-      const popupContent = `<strong>${vehicle.unitNumber}</strong><br/>${vehicle.routeName}<br/>${getOperationalStatusLabel(vehicle.operationalStatus)}<br/>Actualizado: ${formatLastUpdate(vehicle.lastUpdate)}`
-      const vehicleLatLng: L.LatLngExpression = [
-        vehicle.position.lat,
-        vehicle.position.lng,
-      ]
-      let marker = markerById.get(vehicle.id)
-
-      if (!marker) {
-        marker = L.circleMarker(vehicleLatLng, markerStyle)
-          .addTo(vehicleLayer)
-          .bindPopup(popupContent)
-          .on('click', () => handleVehicleMarkerClick(vehicle.id))
-        markerById.set(vehicle.id, marker)
-      } else {
-        marker.setLatLng(vehicleLatLng)
-        marker.setStyle(markerStyle)
-        marker.setPopupContent(popupContent)
-      }
-
-      if (isSelectedVehicle && marker) {
-        marker.bringToFront()
-
-        if (!marker.isPopupOpen()) {
-          marker.openPopup()
-        }
-      } else if (marker?.isPopupOpen()) {
-        marker.closePopup()
-      }
-    })
-
-    const selectedVehicle =
-      displayedVehicles.find((vehicle) => vehicle.id === selectedVehicleId) ?? null
+  useEffect(() => {
+    if (mapLoadStatus !== 'ready') return
 
     if (selectedVehicle) {
-      const selectedLatLng: L.LatLngExpression = [
-        selectedVehicle.position.lat,
-        selectedVehicle.position.lng,
-      ]
-
-      if (!selectedVehicleHighlightRef.current) {
-        selectedVehicleHighlightRef.current = L.circle(selectedLatLng, {
-          radius: 85,
-          color: '#0f172a',
-          fillColor: '#cbd5f5',
-          fillOpacity: 0.1,
-          weight: 1.5,
-        }).addTo(vehicleLayer)
-      } else {
-        selectedVehicleHighlightRef.current.setLatLng(selectedLatLng)
-      }
-
-      selectedVehicleHighlightRef.current.bringToBack()
-      markerById.get(selectedVehicle.id)?.bringToFront()
-    } else if (selectedVehicleHighlightRef.current) {
-      vehicleLayer.removeLayer(selectedVehicleHighlightRef.current)
-      selectedVehicleHighlightRef.current = null
-    }
-  }, [displayedVehicles, selectedVehicleId])
-
-  useEffect(() => {
-    const userLayer = userLayerRef.current
-
-    if (!userLayer) {
+      openVehiclePopup(selectedVehicle)
       return
     }
 
-    userLayer.clearLayers()
-
-    if (userPosition) {
-      const userLatLng: [number, number] = [userPosition.lat, userPosition.lng]
-
-      L.circleMarker(userLatLng, {
-        radius: 8,
-        color: '#1d4ed8',
-        fillColor: '#60a5fa',
-        fillOpacity: 1,
-        weight: 3,
-      })
-        .addTo(userLayer)
-        .bindPopup('Tu ubicación actual')
-
-      if (accuracyMeters && accuracyMeters > 0) {
-        L.circle(userLatLng, {
-          radius: Math.min(accuracyMeters, 600),
-          color: '#60a5fa',
-          fillColor: '#93c5fd',
-          fillOpacity: 0.12,
-          weight: 1,
-        }).addTo(userLayer)
-      }
-    }
-  }, [accuracyMeters, userPosition])
+    popupRef.current?.remove()
+    popupRef.current = null
+  }, [mapLoadStatus, selectedVehicle])
 
   useEffect(() => {
     const map = mapRef.current
-
-    if (!map) {
-      return
-    }
+    if (!map || mapLoadStatus !== 'ready') return
 
     const viewKey = selectedRoute?.id ?? `transport:${activeTransportType}`
     const shouldFitView =
       !didFitInitialViewRef.current || lastFittedViewKeyRef.current !== viewKey
+    const routeBounds = getRouteBounds(selectedRoute ? [selectedRoute] : displayedRoutes)
 
-    if (shouldFitView && routeBoundsPoints.length > 0) {
-      map.fitBounds(L.latLngBounds(routeBoundsPoints), {
-        paddingTopLeft: [24, 72],
-        paddingBottomRight: [24, selectedRoute || selectedVehicleSummary ? 112 : 32],
+    if (shouldFitView && routeBounds) {
+      map.fitBounds(routeBounds, {
+        padding: {
+          top: 72,
+          bottom: selectedRoute || selectedVehicleSummary ? 112 : 32,
+          left: 24,
+          right: 24,
+        },
         maxZoom: selectedRoute ? 14.75 : 13.6,
       })
       didFitInitialViewRef.current = true
@@ -553,23 +867,20 @@ function PassengerMapContent({
     }
 
     if (!didFitInitialViewRef.current && userPosition) {
-      map.setView([userPosition.lat, userPosition.lng], 14)
+      map.flyTo({
+        center: [userPosition.lng, userPosition.lat],
+        zoom: 14,
+        duration: 0.55,
+      })
       didFitInitialViewRef.current = true
       lastFittedViewKeyRef.current = viewKey
     }
-  }, [
-    activeTransportType,
-    routeBoundsPoints,
-    selectedRoute,
-    selectedVehicleId,
-    selectedVehicleSummary,
-    userPosition,
-  ])
+  }, [activeTransportType, displayedRoutes, mapLoadStatus, selectedRoute, selectedVehicleSummary, userPosition])
 
   useEffect(() => {
     const map = mapRef.current
 
-    if (!map || centerOnUserRequestCount === 0) {
+    if (!map || mapLoadStatus !== 'ready' || centerOnUserRequestCount === 0) {
       return
     }
 
@@ -578,16 +889,30 @@ function PassengerMapContent({
       return
     }
 
-    map.flyTo([userPosition.lat, userPosition.lng], Math.max(map.getZoom(), 15), {
+    map.flyTo({
+      center: [userPosition.lng, userPosition.lat],
+      zoom: 15,
       duration: 0.55,
     })
-  }, [centerOnUserRequestCount, requestPermission, userPosition])
+  }, [centerOnUserRequestCount, mapLoadStatus, requestPermission, userPosition])
 
   if (!hasHydratedSelection) {
     return (
       <PassengerMapEmptyState
         title="Cargando mapa"
-        description="Recuperando la última ruta seleccionada para mostrar la vista del pasajero."
+        description="Recuperando la ultima ruta seleccionada para mostrar la vista del pasajero."
+      />
+    )
+  }
+
+  if (mapLoadStatus === 'error') {
+    return (
+      <PassengerMapEmptyState
+        title="No se pudo cargar el mapa"
+        description={
+          mapLoadError ??
+          'Revisa la configuracion del proveedor de mapas para mostrar la vista de pasajeros.'
+        }
       />
     )
   }
@@ -610,17 +935,30 @@ function PassengerMapContent({
                 className="h-[50svh] min-h-[320px] w-full sm:h-[62svh] xl:h-[calc(100svh-11rem)] xl:min-h-[560px]"
               />
 
+              {mapLoadStatus !== 'ready' ? (
+                <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-950/5 px-4 text-center">
+                  <div className="max-w-sm rounded-2xl border border-slate-200 bg-white/95 p-4 shadow-[0_18px_35px_-28px_rgba(15,23,42,0.6)] backdrop-blur">
+                    <p className="text-sm font-semibold text-slate-900">
+                      Cargando mapa moderno
+                    </p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      MapLibre esta inicializando la capa base y los estilos de Stadia.
+                    </p>
+                  </div>
+                </div>
+              ) : null}
+
               <div className="pointer-events-none absolute left-3 right-3 top-3 flex items-start justify-between gap-3">
                 <div className="pointer-events-auto max-w-[70%] rounded-full bg-white/92 px-3 py-2 shadow-[0_14px_28px_-24px_rgba(15,23,42,0.6)] backdrop-blur">
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-teal-700">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-teal-700">
                     {selectedRoute
                       ? getTransportTypeLabel(selectedRoute.transportType)
-                      : getTransportTypeLabel(activeTransportType)}
+                      : `Vista de ${getTransportTypeLabel(activeTransportType)}`}
                   </p>
                   <p className="truncate text-sm font-semibold text-slate-900">
                     {selectedRoute
                       ? selectedRoute.name
-                      : `Vista general de ${getTransportTypeLabel(activeTransportType).toLowerCase()}`}
+                      : `${activeRoutesCount} rutas con servicio para explorar`}
                   </p>
                 </div>
 
@@ -629,8 +967,8 @@ function PassengerMapContent({
                     type="button"
                     onClick={() => setCenterOnUserRequestCount((value) => value + 1)}
                     className="relative flex h-11 w-11 items-center justify-center rounded-xl border border-sky-200 bg-white text-sky-700 shadow-[0_14px_28px_-24px_rgba(15,23,42,0.6)] backdrop-blur transition hover:border-sky-300"
-                    aria-label="Ir a mi ubicación"
-                    title="Ir a mi ubicación"
+                    aria-label="Ir a mi ubicacion"
+                    title="Ir a mi ubicacion"
                   >
                     <LocationTargetIcon />
                   </button>
@@ -679,9 +1017,7 @@ function PassengerMapContent({
                               selectedVehicleSummary.operationalStatus,
                             )}`}
                           >
-                            {getOperationalStatusLabel(
-                              selectedVehicleSummary.operationalStatus,
-                            )}
+                            {getOperationalStatusLabel(selectedVehicleSummary.operationalStatus)}
                           </span>
                         </div>
                         <div className="mt-3 flex flex-wrap gap-2">
@@ -692,7 +1028,7 @@ function PassengerMapContent({
                           >
                             Ver unidad
                           </button>
-                          {(selectedRoute || hasTransportTypeFilter) ? (
+                          {selectedRoute || hasTransportTypeFilter ? (
                             <button
                               type="button"
                               onClick={handleResetView}
@@ -702,7 +1038,7 @@ function PassengerMapContent({
                             </button>
                           ) : null}
                           <span className="inline-flex min-h-10 items-center rounded-full bg-slate-100 px-3 text-xs font-semibold text-slate-600">
-                            Última señal: {formatLastUpdate(selectedVehicleSummary.lastUpdate)}
+                            Ultima senal: {formatLastUpdate(selectedVehicleSummary.lastUpdate)}
                           </span>
                         </div>
                       </>
@@ -714,28 +1050,44 @@ function PassengerMapContent({
           </article>
 
           <PassengerMapSidebar
-            routeGroups={routeGroups}
+            routeGroups={routeGroupsByUtility}
             activeTransportType={activeTransportType}
             activeRouteGroup={filteredActiveRouteGroup}
             hasTransportTypeFilter={hasTransportTypeFilter}
             recommendedRoute={recommendedRoute}
+            nearbyRoutes={nearbyRoutes}
             permissionState={permissionState}
             locationStatusCopy={locationStatusCopy}
             selectedRoute={selectedRoute}
+            selectedRouteVehicles={sortedSelectedRouteVehicles}
+            isFollowingPosition={isFollowingPosition}
+            currentTimeMs={currentTimeMs}
             routeDistanceById={routeDistanceById}
             vehicleStatsByRoute={vehicleStatsByRoute}
             routeSearchTerm={routeSearchTerm}
             showOnlyRoutesWithVisibleVehicles={showOnlyRoutesWithVisibleVehicles}
             canResetView={Boolean(selectedRoute || hasTransportTypeFilter)}
-            onRequestPermission={requestPermission}
+            onRequestPermission={() => {
+              void requestPermission()
+            }}
+            onStartFollowingPosition={() => {
+              void startFollowingPosition()
+            }}
+            onStopFollowingPosition={stopFollowingPosition}
             onFocusRecommended={() => {
               if (recommendedRoute) {
                 focusRouteAndRevealMap(recommendedRoute.route.id)
               }
             }}
+            onFocusVehicle={focusVehicle}
             onRouteSearchTermChange={(value) => {
               startTransition(() => {
                 setRouteSearchTerm(value)
+              })
+            }}
+            onClearSearch={() => {
+              startTransition(() => {
+                setRouteSearchTerm('')
               })
             }}
             onToggleShowOnlyRoutesWithVisibleVehicles={() =>
@@ -762,10 +1114,12 @@ function PassengerMapContent({
         isOpen={isRoutePickerOpen}
         activeTransportType={activeTransportType}
         routeGroups={filteredRouteGroups}
-        selectedRouteId={selectedRoute?.id ?? null}
-        routeSearchTerm={routeSearchTerm}
-        showOnlyRoutesWithVisibleVehicles={showOnlyRoutesWithVisibleVehicles}
-        onClose={() => setRoutePickerOpen(false)}
+            selectedRouteId={selectedRoute?.id ?? null}
+            routeSearchTerm={routeSearchTerm}
+            routeDistanceById={routeDistanceById}
+            vehicleStatsByRoute={vehicleStatsByRoute}
+            showOnlyRoutesWithVisibleVehicles={showOnlyRoutesWithVisibleVehicles}
+            onClose={() => setRoutePickerOpen(false)}
         onRouteSearchTermChange={(value) => {
           startTransition(() => {
             setRouteSearchTerm(value)
@@ -783,16 +1137,16 @@ function PassengerMapContent({
           handleResetView()
           setRoutePickerOpen(false)
         }}
+        onClearSearch={() => {
+          startTransition(() => {
+            setRouteSearchTerm('')
+          })
+        }}
       />
 
-      {isInfoOpen ? (
-        <PassengerMapInfoModal onClose={() => setInfoOpen(false)} />
-      ) : null}
+      {isInfoOpen ? <PassengerMapInfoModal onClose={() => setInfoOpen(false)} /> : null}
       {routeInfoRoute ? (
-        <PassengerRouteInfoModal
-          route={routeInfoRoute}
-          onClose={() => setRouteInfoRouteId(null)}
-        />
+        <PassengerRouteInfoModal route={routeInfoRoute} onClose={() => setRouteInfoRouteId(null)} />
       ) : null}
     </>
   )
@@ -802,7 +1156,7 @@ export function PassengerMapView() {
   if (!convexUrl) {
     return (
       <PassengerMapEmptyState
-        title="Convex aún no está configurado"
+        title="Convex aun no esta configurado"
         description="Inicia Convex con un despliegue local para cargar la URL del backend en Vite y habilitar el mapa con datos reales."
       />
     )

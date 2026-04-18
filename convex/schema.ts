@@ -6,6 +6,14 @@ const coordinates = v.object({
   lng: v.number(),
 })
 
+const passengerRouteInfo = v.object({
+  summary: v.string(),
+  landmarks: v.array(v.string()),
+  startTime: v.optional(v.string()),
+  endTime: v.optional(v.string()),
+  frequency: v.optional(v.string()),
+})
+
 export default defineSchema({
   users: defineTable({
     name: v.string(),
@@ -31,6 +39,7 @@ export default defineSchema({
     sourceFile: v.optional(v.string()),
     status: v.union(v.literal('draft'), v.literal('active')),
     color: v.string(),
+    passengerInfo: v.optional(passengerRouteInfo),
     segments: v.optional(v.array(v.array(coordinates))),
     path: v.optional(v.array(coordinates)),
     createdAt: v.string(),

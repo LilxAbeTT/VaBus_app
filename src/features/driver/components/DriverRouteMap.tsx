@@ -1,11 +1,21 @@
-import { useEffect, useMemo, useRef } from 'react'
-import L from 'leaflet'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import maplibregl, { type GeoJSONSource } from 'maplibre-gl'
+import {
+  mapAttribution,
+  mapInitialCenter,
+  mapInitialZoom,
+  mapMaxZoom,
+  mapStyleUrl,
+} from '../../../lib/env'
+import {
+  buildLineStringFeatures,
+  buildPointFeatureCollection,
+  getBoundsFromPoints,
+} from '../../../lib/mapGeometry'
 import type { BusRoute, Coordinates } from '../../../types/domain'
 
 function getRouteBounds(route: BusRoute) {
-  return route.segments.flatMap((segment) =>
-    segment.map((point) => [point.lat, point.lng] as [number, number]),
-  )
+  return route.segments.flatMap((segment) => segment)
 }
 
 function areCoordinatesEqual(
@@ -19,6 +29,10 @@ function areCoordinatesEqual(
   return left.lat === right.lat && left.lng === right.lng
 }
 
+const DRIVER_ROUTE_SOURCE_ID = 'driver-route'
+const DRIVER_PRIMARY_SOURCE_ID = 'driver-primary-position'
+const DRIVER_SHARED_SOURCE_ID = 'driver-shared-position'
+
 export function DriverRouteMap({
   route,
   livePosition,
@@ -29,17 +43,52 @@ export function DriverRouteMap({
   lastSharedPosition: Coordinates | null
 }) {
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
-  const mapRef = useRef<L.Map | null>(null)
-  const routeLayerRef = useRef<L.LayerGroup | null>(null)
-  const markerLayerRef = useRef<L.LayerGroup | null>(null)
-  const primaryMarkerRef = useRef<L.CircleMarker | null>(null)
-  const sharedMarkerRef = useRef<L.CircleMarker | null>(null)
+  const mapRef = useRef<maplibregl.Map | null>(null)
   const lastFittedRouteIdRef = useRef<string | null>(null)
+  const [isMapReady, setMapReady] = useState(false)
 
   const primaryPosition = livePosition ?? lastSharedPosition ?? null
   const routeBoundsPoints = useMemo(
     () => (route ? getRouteBounds(route) : []),
     [route],
+  )
+  const routeFeatureCollection = useMemo(
+    () => buildLineStringFeatures(route?.segments ?? []),
+    [route],
+  )
+  const primaryFeatureCollection = useMemo(
+    () =>
+      buildPointFeatureCollection(
+        route && (primaryPosition ?? route.segments[0]?.[0] ?? null)
+          ? [
+              {
+                coordinates: primaryPosition ?? route.segments[0][0],
+                properties: {
+                  label: 'Tu ubicacion actual',
+                },
+              },
+            ]
+          : [],
+      ),
+    [primaryPosition, route],
+  )
+  const sharedFeatureCollection = useMemo(
+    () =>
+      buildPointFeatureCollection(
+        lastSharedPosition &&
+          primaryPosition &&
+          !areCoordinatesEqual(lastSharedPosition, primaryPosition)
+          ? [
+              {
+                coordinates: lastSharedPosition,
+                properties: {
+                  label: 'Ultima ubicacion compartida',
+                },
+              },
+            ]
+          : [],
+      ),
+    [lastSharedPosition, primaryPosition],
   )
 
   useEffect(() => {
@@ -47,149 +96,186 @@ export function DriverRouteMap({
       return
     }
 
-    const map = L.map(mapContainerRef.current, {
-      scrollWheelZoom: false,
-      zoomControl: false,
+    const map = new maplibregl.Map({
+      container: mapContainerRef.current,
+      style: mapStyleUrl,
+      center: mapInitialCenter,
+      zoom: mapInitialZoom,
+      maxZoom: mapMaxZoom,
+      attributionControl: false,
+      dragRotate: false,
+      pitchWithRotate: false,
+      touchPitch: false,
     })
 
     mapRef.current = map
-    routeLayerRef.current = L.layerGroup().addTo(map)
-    markerLayerRef.current = L.layerGroup().addTo(map)
+    map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), 'top-left')
+    map.addControl(
+      new maplibregl.AttributionControl({
+        compact: true,
+        customAttribution: mapAttribution,
+      }),
+      'bottom-right',
+    )
 
-    L.control.zoom({ position: 'topright' }).addTo(map)
+    const handleLoad = () => {
+      setMapReady(true)
+    }
 
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '&copy; OpenStreetMap contributors',
-    }).addTo(map)
-
-    map.setView([23.058, -109.701], 13)
+    map.on('load', handleLoad)
 
     return () => {
+      map.off('load', handleLoad)
       map.remove()
       mapRef.current = null
-      routeLayerRef.current = null
-      markerLayerRef.current = null
-      primaryMarkerRef.current = null
-      sharedMarkerRef.current = null
+      lastFittedRouteIdRef.current = null
+      setMapReady(false)
     }
   }, [])
 
   useEffect(() => {
-    const routeLayer = routeLayerRef.current
+    const map = mapRef.current
 
-    if (!routeLayer) {
+    if (!map || !isMapReady) {
       return
     }
 
-    routeLayer.clearLayers()
+    if (!map.getSource(DRIVER_ROUTE_SOURCE_ID)) {
+      map.addSource(DRIVER_ROUTE_SOURCE_ID, {
+        type: 'geojson',
+        data: routeFeatureCollection,
+      })
 
-    if (!route) {
-      return
+      map.addLayer({
+        id: `${DRIVER_ROUTE_SOURCE_ID}-casing`,
+        type: 'line',
+        source: DRIVER_ROUTE_SOURCE_ID,
+        paint: {
+          'line-color': '#082f49',
+          'line-width': 9,
+          'line-opacity': 0.16,
+        },
+        layout: {
+          'line-cap': 'round',
+          'line-join': 'round',
+        },
+      })
+
+      map.addLayer({
+        id: `${DRIVER_ROUTE_SOURCE_ID}-line`,
+        type: 'line',
+        source: DRIVER_ROUTE_SOURCE_ID,
+        paint: {
+          'line-color': route?.color ?? '#0f766e',
+          'line-width': 6,
+          'line-opacity': 0.92,
+        },
+        layout: {
+          'line-cap': 'round',
+          'line-join': 'round',
+        },
+      })
     }
 
-    route.segments.forEach((segment) => {
-      const path = segment.map((point) => [point.lat, point.lng] as [number, number])
+    if (!map.getSource(DRIVER_PRIMARY_SOURCE_ID)) {
+      map.addSource(DRIVER_PRIMARY_SOURCE_ID, {
+        type: 'geojson',
+        data: primaryFeatureCollection,
+      })
 
-      if (path.length === 0) {
-        return
-      }
+      map.addLayer({
+        id: `${DRIVER_PRIMARY_SOURCE_ID}-halo`,
+        type: 'circle',
+        source: DRIVER_PRIMARY_SOURCE_ID,
+        paint: {
+          'circle-radius': 18,
+          'circle-color': '#60a5fa',
+          'circle-opacity': 0.18,
+        },
+      })
 
-      L.polyline(path, {
-        color: route.color,
-        weight: 6,
-        opacity: 0.88,
-      }).addTo(routeLayer)
-    })
-  }, [route])
-
-  useEffect(() => {
-    const markerLayer = markerLayerRef.current
-
-    if (!markerLayer) {
-      return
+      map.addLayer({
+        id: `${DRIVER_PRIMARY_SOURCE_ID}-circle`,
+        type: 'circle',
+        source: DRIVER_PRIMARY_SOURCE_ID,
+        paint: {
+          'circle-radius': 9,
+          'circle-color': '#60a5fa',
+          'circle-stroke-color': '#1d4ed8',
+          'circle-stroke-width': 3,
+        },
+      })
     }
 
-    if (!route) {
-      if (primaryMarkerRef.current) {
-        markerLayer.removeLayer(primaryMarkerRef.current)
-        primaryMarkerRef.current = null
-      }
+    if (!map.getSource(DRIVER_SHARED_SOURCE_ID)) {
+      map.addSource(DRIVER_SHARED_SOURCE_ID, {
+        type: 'geojson',
+        data: sharedFeatureCollection,
+      })
 
-      if (sharedMarkerRef.current) {
-        markerLayer.removeLayer(sharedMarkerRef.current)
-        sharedMarkerRef.current = null
-      }
-
-      return
+      map.addLayer({
+        id: `${DRIVER_SHARED_SOURCE_ID}-circle`,
+        type: 'circle',
+        source: DRIVER_SHARED_SOURCE_ID,
+        paint: {
+          'circle-radius': 6,
+          'circle-color': '#2dd4bf',
+          'circle-stroke-color': '#0f766e',
+          'circle-stroke-width': 2,
+          'circle-opacity': 0.88,
+        },
+      })
     }
-
-    const referencePosition = primaryPosition ?? route.segments[0]?.[0] ?? null
-
-    if (referencePosition) {
-      const primaryLatLng: L.LatLngExpression = [
-        referencePosition.lat,
-        referencePosition.lng,
-      ]
-
-      if (!primaryMarkerRef.current) {
-        primaryMarkerRef.current = L.circleMarker(primaryLatLng, {
-          radius: 9,
-          color: '#1d4ed8',
-          fillColor: '#60a5fa',
-          fillOpacity: 1,
-          weight: 3,
-        })
-          .addTo(markerLayer)
-          .bindPopup('Tu ubicacion actual')
-      } else {
-        primaryMarkerRef.current.setLatLng(primaryLatLng)
-      }
-    } else if (primaryMarkerRef.current) {
-      markerLayer.removeLayer(primaryMarkerRef.current)
-      primaryMarkerRef.current = null
-    }
-
-    if (
-      lastSharedPosition &&
-      primaryPosition &&
-      !areCoordinatesEqual(lastSharedPosition, primaryPosition)
-    ) {
-      const sharedLatLng: L.LatLngExpression = [
-        lastSharedPosition.lat,
-        lastSharedPosition.lng,
-      ]
-
-      if (!sharedMarkerRef.current) {
-        sharedMarkerRef.current = L.circleMarker(sharedLatLng, {
-          radius: 6,
-          color: '#0f766e',
-          fillColor: '#2dd4bf',
-          fillOpacity: 0.8,
-          weight: 2,
-        })
-          .addTo(markerLayer)
-          .bindPopup('Ultima ubicacion compartida')
-      } else {
-        sharedMarkerRef.current.setLatLng(sharedLatLng)
-      }
-    } else if (sharedMarkerRef.current) {
-      markerLayer.removeLayer(sharedMarkerRef.current)
-      sharedMarkerRef.current = null
-    }
-  }, [lastSharedPosition, primaryPosition, route])
+  }, [isMapReady, primaryFeatureCollection, route?.color, routeFeatureCollection, sharedFeatureCollection])
 
   useEffect(() => {
     const map = mapRef.current
 
-    if (!map || !route) {
+    if (!map || !isMapReady) {
       return
     }
 
-    if (lastFittedRouteIdRef.current !== route.id && routeBoundsPoints.length > 0) {
-      map.fitBounds(L.latLngBounds(routeBoundsPoints), {
-        paddingTopLeft: [24, 24],
-        paddingBottomRight: [24, 24],
+    ;(map.getSource(DRIVER_ROUTE_SOURCE_ID) as GeoJSONSource | undefined)?.setData(
+      routeFeatureCollection,
+    )
+    ;(map.getSource(DRIVER_PRIMARY_SOURCE_ID) as GeoJSONSource | undefined)?.setData(
+      primaryFeatureCollection,
+    )
+    ;(map.getSource(DRIVER_SHARED_SOURCE_ID) as GeoJSONSource | undefined)?.setData(
+      sharedFeatureCollection,
+    )
+
+    if (map.getLayer(`${DRIVER_ROUTE_SOURCE_ID}-line`)) {
+      map.setPaintProperty(
+        `${DRIVER_ROUTE_SOURCE_ID}-line`,
+        'line-color',
+        route?.color ?? '#0f766e',
+      )
+    }
+  }, [
+    isMapReady,
+    primaryFeatureCollection,
+    route?.color,
+    routeFeatureCollection,
+    sharedFeatureCollection,
+  ])
+
+  useEffect(() => {
+    const map = mapRef.current
+    const bounds = getBoundsFromPoints(routeBoundsPoints)
+
+    if (!map || !route || !bounds) {
+      return
+    }
+
+    if (lastFittedRouteIdRef.current !== route.id) {
+      map.fitBounds(bounds, {
+        padding: {
+          top: 24,
+          right: 24,
+          bottom: 24,
+          left: 24,
+        },
         maxZoom: 14.75,
       })
       lastFittedRouteIdRef.current = route.id

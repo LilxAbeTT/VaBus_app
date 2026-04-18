@@ -3,6 +3,7 @@ import { mutation } from './_generated/server'
 import { importedRouteSeeds } from './data/importedRoutes.generated'
 import { hashPassword, normalizeEmail } from './lib/auth'
 import { getRouteImportKey, getRouteSegments } from './lib/routes'
+import { extractRouteDetails } from '../shared/routeDetails'
 
 const seedTimestamp = '2026-04-05T16:20:00-07:00'
 
@@ -68,6 +69,7 @@ export const seedDatabase = mutation({
           sourceFile: routeSeed.sourceFile,
           status: 'active',
           color: routeSeed.color,
+          passengerInfo: routeSeed.passengerInfo,
           segments: routeSeed.segments,
         })
         routeIdsByImportKey[routeSeed.importKey] = existingRoute._id
@@ -83,6 +85,7 @@ export const seedDatabase = mutation({
         sourceFile: routeSeed.sourceFile,
         status: 'active',
         color: routeSeed.color,
+        passengerInfo: routeSeed.passengerInfo,
         segments: routeSeed.segments,
         createdAt: seedTimestamp,
       })
@@ -105,6 +108,7 @@ export const seedDatabase = mutation({
           (route.slug.startsWith('colectivo') ? 'colectivo' : 'urbano'),
         sourceFile: route.sourceFile ?? 'legacy-seed',
         status: 'draft',
+        passengerInfo: route.passengerInfo ?? extractRouteDetails(route.direction),
         segments: getRouteSegments(route),
       })
       normalizedLegacyRoutes += 1

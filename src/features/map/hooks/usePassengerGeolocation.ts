@@ -3,7 +3,7 @@ import type { Coordinates } from '../../../types/domain'
 
 const PASSENGER_GEOLOCATION_OPTIONS: PositionOptions = {
   enableHighAccuracy: true,
-  maximumAge: 10_000,
+  maximumAge: 20_000,
   timeout: 15_000,
 }
 
@@ -30,13 +30,13 @@ function normalizePermissionState(
 function getLocationErrorMessage(error: GeolocationPositionError) {
   switch (error.code) {
     case error.PERMISSION_DENIED:
-      return 'El permiso de ubicación fue denegado.'
+      return 'El permiso de ubicacion fue denegado.'
     case error.TIMEOUT:
-      return 'La ubicación tardó demasiado en responder.'
+      return 'La ubicacion tardo demasiado en responder.'
     case error.POSITION_UNAVAILABLE:
-      return 'No fue posible obtener tu ubicación en este momento.'
+      return 'No fue posible obtener tu ubicacion en este momento.'
     default:
-      return 'Ocurrió un error al leer tu ubicación.'
+      return 'Ocurrio un error al leer tu ubicacion.'
   }
 }
 
@@ -50,6 +50,7 @@ export function usePassengerGeolocation() {
       return 'geolocation' in navigator ? 'prompt' : 'unsupported'
     })
   const [isRequestingPermission, setIsRequestingPermission] = useState(false)
+  const [isFollowingPosition, setIsFollowingPosition] = useState(false)
   const [position, setPosition] = useState<Coordinates | null>(null)
   const [accuracyMeters, setAccuracyMeters] = useState<number | null>(null)
   const [capturedAt, setCapturedAt] = useState<string | null>(null)
@@ -57,6 +58,18 @@ export function usePassengerGeolocation() {
 
   const watchIdRef = useRef<number | null>(null)
   const permissionStatusRef = useRef<PermissionStatus | null>(null)
+
+  const commitPosition = useCallback((nextPosition: GeolocationPosition) => {
+    setPermissionState('granted')
+    setPosition({
+      lat: nextPosition.coords.latitude,
+      lng: nextPosition.coords.longitude,
+    })
+    setAccuracyMeters(
+      Number.isFinite(nextPosition.coords.accuracy) ? nextPosition.coords.accuracy : null,
+    )
+    setCapturedAt(new Date(nextPosition.timestamp).toISOString())
+  }, [])
 
   const clearWatch = useCallback(() => {
     if (
@@ -68,39 +81,66 @@ export function usePassengerGeolocation() {
     }
 
     watchIdRef.current = null
+    setIsFollowingPosition(false)
   }, [])
 
-  const startWatching = useCallback((requestedByUser = true) => {
+  const requestPermission = useCallback(
+    async (requestedByUser = true) => {
+      if (typeof navigator === 'undefined' || !('geolocation' in navigator)) {
+        setPermissionState('unsupported')
+        setErrorMessage('Este navegador no soporta geolocalizacion para el mapa del pasajero.')
+        return false
+      }
+
+      setIsRequestingPermission(requestedByUser)
+      setErrorMessage(null)
+
+      return await new Promise<boolean>((resolve) => {
+        navigator.geolocation.getCurrentPosition(
+          (nextPosition) => {
+            commitPosition(nextPosition)
+            setIsRequestingPermission(false)
+            resolve(true)
+          },
+          (error) => {
+            if (error.code === error.PERMISSION_DENIED) {
+              setPermissionState('denied')
+            }
+
+            setIsRequestingPermission(false)
+            setErrorMessage(getLocationErrorMessage(error))
+            resolve(false)
+          },
+          PASSENGER_GEOLOCATION_OPTIONS,
+        )
+      })
+    },
+    [commitPosition],
+  )
+
+  const startFollowingPosition = useCallback(async () => {
     if (typeof navigator === 'undefined' || !('geolocation' in navigator)) {
       setPermissionState('unsupported')
-      setIsRequestingPermission(false)
-      setErrorMessage(
-        'Este navegador no soporta geolocalización para el mapa del pasajero.',
-      )
-      return
+      setErrorMessage('Este navegador no soporta geolocalizacion para el mapa del pasajero.')
+      return false
     }
 
     if (watchIdRef.current !== null) {
-      return
+      setIsFollowingPosition(true)
+      return true
     }
 
-    setIsRequestingPermission(requestedByUser)
-    setErrorMessage(null)
+    const hasPosition = position ? true : await requestPermission(true)
 
+    if (!hasPosition) {
+      return false
+    }
+
+    setErrorMessage(null)
     watchIdRef.current = navigator.geolocation.watchPosition(
       (nextPosition) => {
-        setPermissionState('granted')
-        setIsRequestingPermission(false)
-        setPosition({
-          lat: nextPosition.coords.latitude,
-          lng: nextPosition.coords.longitude,
-        })
-        setAccuracyMeters(
-          Number.isFinite(nextPosition.coords.accuracy)
-            ? nextPosition.coords.accuracy
-            : null,
-        )
-        setCapturedAt(new Date(nextPosition.timestamp).toISOString())
+        commitPosition(nextPosition)
+        setIsFollowingPosition(true)
       },
       (error) => {
         if (error.code === error.PERMISSION_DENIED) {
@@ -108,12 +148,14 @@ export function usePassengerGeolocation() {
           setPermissionState('denied')
         }
 
-        setIsRequestingPermission(false)
         setErrorMessage(getLocationErrorMessage(error))
       },
       PASSENGER_GEOLOCATION_OPTIONS,
     )
-  }, [clearWatch])
+
+    setIsFollowingPosition(true)
+    return true
+  }, [clearWatch, commitPosition, position, requestPermission])
 
   useEffect(() => {
     if (
@@ -138,17 +180,15 @@ export function usePassengerGeolocation() {
         setPermissionState(nextPermissionState)
 
         if (nextPermissionState === 'granted') {
-          startWatching(false)
+          void requestPermission(false)
         }
 
         permissionStatus.onchange = () => {
-          const changedPermissionState = normalizePermissionState(
-            permissionStatus.state,
-          )
+          const changedPermissionState = normalizePermissionState(permissionStatus.state)
           setPermissionState(changedPermissionState)
 
           if (changedPermissionState === 'granted') {
-            startWatching(false)
+            void requestPermission(false)
             return
           }
 
@@ -170,17 +210,20 @@ export function usePassengerGeolocation() {
         permissionStatusRef.current.onchange = null
       }
     }
-  }, [clearWatch, startWatching])
+  }, [clearWatch, requestPermission])
 
   useEffect(() => clearWatch, [clearWatch])
 
   return {
     permissionState,
     isRequestingPermission,
+    isFollowingPosition,
     position,
     accuracyMeters,
     capturedAt,
     errorMessage,
-    requestPermission: () => startWatching(true),
+    requestPermission: () => requestPermission(true),
+    startFollowingPosition,
+    stopFollowingPosition: clearWatch,
   }
 }

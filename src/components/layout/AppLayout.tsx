@@ -32,8 +32,8 @@ export function AppLayout({ children }: PropsWithChildren) {
                   CaboBus
                 </h1>
                 <p className="max-w-2xl text-sm leading-6 text-slate-600 sm:text-base">
-                Rutas y unidades activas en tiempo real para consulta rápida
-                desde el celular en San José del Cabo.
+                  Rutas y unidades activas en tiempo real para consulta rápida
+                  desde el celular en San José del Cabo.
                 </p>
               </div>
             </div>
@@ -71,7 +71,7 @@ export function AppLayout({ children }: PropsWithChildren) {
               ? 'flex-1 py-3 sm:py-4'
               : isDriverFlow
                 ? 'flex-1 py-3 sm:py-4'
-              : 'flex-1 py-5 sm:py-8'
+                : 'flex-1 py-5 sm:py-8'
         }
       >
         {children}
@@ -79,8 +79,8 @@ export function AppLayout({ children }: PropsWithChildren) {
 
       {!hideShellChrome ? (
         <footer className="px-1 pb-6 text-sm leading-6 text-slate-500 sm:px-2 sm:pb-8">
-                Acceso público para pasajeros, acceso operativo para conductores y
-                administración protegida por ruta directa.
+          Acceso público para pasajeros, acceso operativo para conductores y
+          administración protegida por ruta directa.
         </footer>
       ) : null}
     </div>

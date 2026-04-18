@@ -10,6 +10,15 @@ export const importedRouteSeeds: ImportedRouteSeed[] = [
     "sourceFile": "sjc_colectivo_routes.kml",
     "status": "active",
     "color": "#FFD600",
+    "passengerInfo": {
+      "summary": "Col. Centro San José Del Cabo - Transpeninsular, Col. Zacatal. Vista Hermosa, y Villas de Cortez",
+      "landmarks": [
+        "Col. Centro San José Del Cabo",
+        "Transpeninsular",
+        "Col. Zacatal. Vista Hermosa",
+        "y Villas de Cortez"
+      ]
+    },
     "segments": [
       [
         {
@@ -412,6 +421,17 @@ export const importedRouteSeeds: ImportedRouteSeed[] = [
     "sourceFile": "sjc_colectivo_routes.kml",
     "status": "active",
     "color": "#9C27B0",
+    "passengerInfo": {
+      "summary": "Col. Centro San José Del Cabo - Col. 1 de Mayo - Transpeninsular, Plaza Aramburo, Zacatal. San José Viejo, Predio La Ballena",
+      "landmarks": [
+        "Col. Centro San José Del Cabo",
+        "Col. 1 de Mayo",
+        "Transpeninsular",
+        "Plaza Aramburo",
+        "Zacatal. San José Viejo",
+        "Predio La Ballena"
+      ]
+    },
     "segments": [
       [
         {
@@ -804,6 +824,16 @@ export const importedRouteSeeds: ImportedRouteSeed[] = [
     "sourceFile": "sjc_colectivo_routes.kml",
     "status": "active",
     "color": "#097138",
+    "passengerInfo": {
+      "summary": "Col. Centro San José Del Cabo - Transpeninsular - Col. Santa Rosa - Ampliación Zacatal - Vista Hermosa",
+      "landmarks": [
+        "Col. Centro San José Del Cabo",
+        "Transpeninsular",
+        "Col. Santa Rosa",
+        "Ampliación Zacatal",
+        "Vista Hermosa"
+      ]
+    },
     "segments": [
       [
         {
@@ -1010,6 +1040,14 @@ export const importedRouteSeeds: ImportedRouteSeed[] = [
     "sourceFile": "sjc_colectivo_routes.kml",
     "status": "active",
     "color": "#4E342E",
+    "passengerInfo": {
+      "summary": "Col. Centro San José Del Cabo Transpeninsular - Col. Zacatal - Vista Hermosa",
+      "landmarks": [
+        "Col. Centro San José Del Cabo Transpeninsular",
+        "Col. Zacatal",
+        "Vista Hermosa"
+      ]
+    },
     "segments": [
       [
         {
@@ -1392,6 +1430,19 @@ export const importedRouteSeeds: ImportedRouteSeed[] = [
     "sourceFile": "sjc_colectivo_routes.kml",
     "status": "active",
     "color": "#A52714",
+    "passengerInfo": {
+      "summary": "Santa Rosa Ampliación - Fracc. Villa Bonita - Arroyo Vado San José Viejo - Boulevard Forjadores - Zacatal - Transpeninsular, Boulevard Centenario - Colonia El Rincón de La Playa",
+      "landmarks": [
+        "Santa Rosa Ampliación",
+        "Fracc. Villa Bonita",
+        "Arroyo Vado San José Viejo",
+        "Boulevard Forjadores",
+        "Zacatal",
+        "Transpeninsular",
+        "Boulevard Centenario",
+        "Colonia El Rincón de La Playa"
+      ]
+    },
     "segments": [
       [
         {
@@ -1890,6 +1941,18 @@ export const importedRouteSeeds: ImportedRouteSeed[] = [
     "sourceFile": "sjc_colectivo_routes.kml",
     "status": "active",
     "color": "#AFB42B",
+    "passengerInfo": {
+      "summary": "Villa Bonita - Fracc. Villa Bonita - Ampliación Zacatal - Calle Ernesto Aramburo - Transpeninsular - Glorieta Fonatur - Corredor Turístico",
+      "landmarks": [
+        "Villa Bonita",
+        "Fracc. Villa Bonita",
+        "Ampliación Zacatal",
+        "Calle Ernesto Aramburo",
+        "Transpeninsular",
+        "Glorieta Fonatur",
+        "Corredor Turístico"
+      ]
+    },
     "segments": [
       [
         {
@@ -2204,6 +2267,15 @@ export const importedRouteSeeds: ImportedRouteSeed[] = [
     "sourceFile": "sjc_colectivo_routes.kml",
     "status": "active",
     "color": "#01579B",
+    "passengerInfo": {
+      "summary": "Invi Santa Anita - Transpeninsular - Walmart - Zona Hotelera",
+      "landmarks": [
+        "Invi Santa Anita",
+        "Transpeninsular",
+        "Walmart",
+        "Zona Hotelera"
+      ]
+    },
     "segments": [
       [
         {
@@ -2522,6 +2594,20 @@ export const importedRouteSeeds: ImportedRouteSeed[] = [
     "sourceFile": "sjc_colectivo_routes.kml",
     "status": "active",
     "color": "#7CB342",
+    "passengerInfo": {
+      "summary": "Colonia Ejidal La Ballena Etapa 1 - Nueva Esperanza - Puerto Nuevo, Monte Bello - Vista Hermosa - Villas de Cortés - Santa Rosa - Transpeninsular - FONATUR",
+      "landmarks": [
+        "Colonia Ejidal La Ballena Etapa 1",
+        "Nueva Esperanza",
+        "Puerto Nuevo",
+        "Monte Bello",
+        "Vista Hermosa",
+        "Villas de Cortés",
+        "Santa Rosa",
+        "Transpeninsular",
+        "FONATUR"
+      ]
+    },
     "segments": [
       [
         {
@@ -2984,6 +3070,21 @@ export const importedRouteSeeds: ImportedRouteSeed[] = [
     "sourceFile": "sjc_urbano_routes.kml",
     "status": "active",
     "color": "#AFB42B",
+    "passengerInfo": {
+      "summary": "Colonia Veredas - San Bernabé Transpeninsular - Colonia Zacatal, Boulevard Forjadores - Santa Rosa - ITES Los Cabos - Monterreal - Colonia Pablo L Martínez - Transpeninsular - Colonia Centro",
+      "landmarks": [
+        "Colonia Veredas",
+        "San Bernabé Transpeninsular",
+        "Colonia Zacatal",
+        "Boulevard Forjadores",
+        "Santa Rosa",
+        "ITES Los Cabos",
+        "Monterreal",
+        "Colonia Pablo L Martínez",
+        "Transpeninsular",
+        "Colonia Centro"
+      ]
+    },
     "segments": [
       [
         {
@@ -3578,6 +3679,20 @@ export const importedRouteSeeds: ImportedRouteSeed[] = [
     "sourceFile": "sjc_urbano_routes.kml",
     "status": "active",
     "color": "#0F9D58",
+    "passengerInfo": {
+      "summary": "Colonia Veredas - San Bernabé - Transpeninsular - Colonia San José Viejo - Zacatal - Santa Rosa - IMSS #38 - Guaymitas - Zona Hotelera",
+      "landmarks": [
+        "Colonia Veredas",
+        "San Bernabé",
+        "Transpeninsular",
+        "Colonia San José Viejo",
+        "Zacatal",
+        "Santa Rosa",
+        "IMSS #38",
+        "Guaymitas",
+        "Zona Hotelera"
+      ]
+    },
     "segments": [
       [
         {
@@ -4192,6 +4307,21 @@ export const importedRouteSeeds: ImportedRouteSeed[] = [
     "sourceFile": "sjc_urbano_routes.kml",
     "status": "active",
     "color": "#3949AB",
+    "passengerInfo": {
+      "summary": "Villa Bonita - Arroyo de San José Viejo - Colonia Zacatal - Transpeninsular, Semáforo Magisterial - 5 de Febrero - Zona Hotelera",
+      "landmarks": [
+        "Villa Bonita",
+        "Arroyo de San José Viejo",
+        "Colonia Zacatal",
+        "Transpeninsular",
+        "Semáforo Magisterial",
+        "5 de Febrero",
+        "Zona Hotelera"
+      ],
+      "startTime": "5:30 AM",
+      "endTime": "9:20 PM",
+      "frequency": "30 MNTS"
+    },
     "segments": [
       [
         {
@@ -4714,6 +4844,26 @@ export const importedRouteSeeds: ImportedRouteSeed[] = [
     "sourceFile": "sjc_urbano_routes.kml",
     "status": "active",
     "color": "#FFEA00",
+    "passengerInfo": {
+      "summary": "Colonia Costa Dorada - Transpeninsular - Colonia Veredas - Colonia San Bernabé - Boulevard Forjadores - Colonia Zacatal - Santa Rosa, Transpeninsular, Semáforo de Magisterial - Centro - 5 de Febrero - Corredor Turístico - Zona Hotelera",
+      "landmarks": [
+        "Colonia Costa Dorada",
+        "Transpeninsular",
+        "Colonia Veredas",
+        "Colonia San Bernabé",
+        "Boulevard Forjadores",
+        "Colonia Zacatal",
+        "Santa Rosa",
+        "Semáforo de Magisterial",
+        "Centro",
+        "5 de Febrero",
+        "Corredor Turístico",
+        "Zona Hotelera"
+      ],
+      "startTime": "5:25 AM",
+      "endTime": "8:30 PM",
+      "frequency": "40 MNTS"
+    },
     "segments": [
       [
         {
@@ -5222,6 +5372,21 @@ export const importedRouteSeeds: ImportedRouteSeed[] = [
     "sourceFile": "sjc_urbano_routes.kml",
     "status": "active",
     "color": "#0097A7",
+    "passengerInfo": {
+      "summary": "Fraccionamiento Villa Bonita - Arroyo Vado San José Viejo - Boulevard Forjadores - Zacatal - Transpeninsular - Boulevard Centenario - Colonia El Rincón de La Playa",
+      "landmarks": [
+        "Fraccionamiento Villa Bonita",
+        "Arroyo Vado San José Viejo",
+        "Boulevard Forjadores",
+        "Zacatal",
+        "Transpeninsular",
+        "Boulevard Centenario",
+        "Colonia El Rincón de La Playa"
+      ],
+      "startTime": "5:40 AM",
+      "endTime": "8:40 PM",
+      "frequency": "30-40 MNTS"
+    },
     "segments": [
       [
         {
@@ -5716,6 +5881,23 @@ export const importedRouteSeeds: ImportedRouteSeed[] = [
     "sourceFile": "sjc_urbano_routes.kml",
     "status": "active",
     "color": "#C2185B",
+    "passengerInfo": {
+      "summary": "Soriana Guaymitas - IMSS - Ites Los Cabos - Monte Real - Colonia Pablo L. Martinez - Colonia Luis Donaldo Colosio - Transpeninsular - Centenario - Corredor Turístico",
+      "landmarks": [
+        "Soriana Guaymitas",
+        "IMSS",
+        "Ites Los Cabos",
+        "Monte Real",
+        "Colonia Pablo L. Martinez",
+        "Colonia Luis Donaldo Colosio",
+        "Transpeninsular",
+        "Centenario",
+        "Corredor Turístico"
+      ],
+      "startTime": "5:30 AM",
+      "endTime": "9:30 PM",
+      "frequency": "30 MNTS"
+    },
     "segments": [
       [
         {
@@ -6126,6 +6308,18 @@ export const importedRouteSeeds: ImportedRouteSeed[] = [
     "sourceFile": "sjc_urbano_routes.kml",
     "status": "active",
     "color": "#FF5252",
+    "passengerInfo": {
+      "summary": "Invi Santa Anita - Transpeninsular, Walmart - Boulevard Zona Hotelera",
+      "landmarks": [
+        "Invi Santa Anita",
+        "Transpeninsular",
+        "Walmart",
+        "Boulevard Zona Hotelera"
+      ],
+      "startTime": "5:40 AM",
+      "endTime": "8:20 PM",
+      "frequency": "30 MNTS"
+    },
     "segments": [
       [
         {

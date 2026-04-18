@@ -4,11 +4,15 @@ import type { BusRoute } from '../../../types/domain'
 
 const passengerRouteSelectionStorageKey = 'cabobus.passenger-map.selected-route-id'
 
-export function usePassengerRouteSelection(routes: BusRoute[]) {
+export function usePassengerRouteSelection(
+  routes: BusRoute[],
+  preferredRouteId?: string | null,
+) {
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(() =>
     typeof window === 'undefined'
-      ? null
-      : window.localStorage.getItem(passengerRouteSelectionStorageKey),
+      ? preferredRouteId ?? null
+      : preferredRouteId ??
+        window.localStorage.getItem(passengerRouteSelectionStorageKey),
   )
   const effectiveSelectedRouteId =
     selectedRouteId && routes.some((route) => route.id === selectedRouteId)

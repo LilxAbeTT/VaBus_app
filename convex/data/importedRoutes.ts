@@ -1,4 +1,5 @@
 import type { Coordinates, TransportType } from '../../src/types/domain'
+import type { PassengerRouteInfo } from '../../shared/routeDetails'
 
 export interface ImportedRouteSeed {
   importKey: string
@@ -9,5 +10,6 @@ export interface ImportedRouteSeed {
   sourceFile: string
   status: 'active'
   color: string
+  passengerInfo: PassengerRouteInfo
   segments: Coordinates[][]
 }
