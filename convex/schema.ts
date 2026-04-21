@@ -134,12 +134,54 @@ export default defineSchema({
     .index('by_status_updated_at', ['status', 'updatedAt'])
     .index('by_updated_at', ['updatedAt']),
 
+  stops: defineTable({
+    name: v.optional(v.string()),
+    position: coordinates,
+    status: v.union(
+      v.literal('official'),
+      v.literal('informal'),
+      v.literal('inactive'),
+    ),
+    routeIds: v.array(v.id('routes')),
+    source: v.union(v.literal('admin'), v.literal('user_validated')),
+    note: v.optional(v.string()),
+    reportCount: v.number(),
+    createdAt: v.string(),
+    validatedAt: v.optional(v.string()),
+    lastReportedAt: v.optional(v.string()),
+  }).index('by_status', ['status']),
+
+  stopSuggestions: defineTable({
+    position: coordinates,
+    routeId: v.optional(v.id('routes')),
+    reportedAsOfficial: v.union(
+      v.literal('yes'),
+      v.literal('no'),
+      v.literal('unknown'),
+    ),
+    note: v.optional(v.string()),
+    reporterKey: v.string(),
+    source: v.union(v.literal('map_center'), v.literal('current_location')),
+    createdAt: v.string(),
+    status: v.union(
+      v.literal('pending'),
+      v.literal('approved'),
+      v.literal('rejected'),
+      v.literal('merged'),
+    ),
+    resolvedAt: v.optional(v.string()),
+    stopId: v.optional(v.id('stops')),
+  })
+    .index('by_status_created_at', ['status', 'createdAt'])
+    .index('by_reporter_created_at', ['reporterKey', 'createdAt']),
+
   systemEvents: defineTable({
     category: v.union(
       v.literal('service'),
       v.literal('driver'),
       v.literal('vehicle'),
       v.literal('route'),
+      v.literal('stop'),
     ),
     title: v.string(),
     description: v.string(),
@@ -151,6 +193,7 @@ export default defineSchema({
         v.literal('driver'),
         v.literal('vehicle'),
         v.literal('route'),
+        v.literal('stop'),
       ),
     ),
     targetId: v.optional(v.string()),

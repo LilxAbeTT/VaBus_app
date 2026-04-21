@@ -1,5 +1,5 @@
 import { memo, useMemo, useState } from 'react'
-import type { BusRoute, TransportType } from '../../../types/domain'
+import type { BusRoute, Coordinates, TransportType } from '../../../types/domain'
 import type { PassengerGeolocationPermissionState } from '../hooks/usePassengerGeolocation'
 import { PassengerMapSidebarAssistPanel } from './PassengerMapSidebarAssistPanel'
 import type {
@@ -86,6 +86,8 @@ export const PassengerMapSidebar = memo(function PassengerMapSidebar({
   vehicleStatsByRoute,
   routeSearchTerm,
   showOnlyRoutesWithVisibleVehicles,
+  mapCenter,
+  userPosition,
   canResetView,
   onRequestPermission,
   onFocusRecommended,
@@ -110,6 +112,8 @@ export const PassengerMapSidebar = memo(function PassengerMapSidebar({
   vehicleStatsByRoute: Map<string, { visible: number; stopped: number }>
   routeSearchTerm: string
   showOnlyRoutesWithVisibleVehicles: boolean
+  mapCenter: Coordinates | null
+  userPosition: Coordinates | null
   canResetView: boolean
   onRequestPermission: () => void
   onFocusRecommended: () => void
@@ -504,6 +508,8 @@ export const PassengerMapSidebar = memo(function PassengerMapSidebar({
       <PassengerMapSidebarAssistPanel
         routeOptions={routeOptions}
         defaultReportRouteId={defaultReportRouteId}
+        mapCenter={mapCenter}
+        userPosition={userPosition}
       />
     </section>
   )

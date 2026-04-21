@@ -25,6 +25,14 @@ import {
   getOpenServiceForVehicle,
   getOpenServices,
 } from './lib/services'
+import {
+  STOP_MERGE_RADIUS_METERS,
+  buildStopSuggestionClusters,
+  getAverageCoordinates,
+  getDistanceBetweenCoordinatesMeters,
+  mergeRouteIds,
+  normalizeStopName,
+} from './lib/stops'
 import { recordSystemEvent } from './lib/systemEvents'
 
 function assertNonEmptyValue(value: string, fieldLabel: string) {
@@ -127,6 +135,41 @@ async function requireOpenServiceById(
   }
 
   return service
+}
+
+async function requireStop(
+  db: DatabaseWriter,
+  stopId: Id<'stops'>,
+) {
+  const stop = await db.get(stopId)
+
+  if (!stop) {
+    throw new ConvexError('La parada indicada ya no existe.')
+  }
+
+  return stop
+}
+
+async function requireSuggestionGroup(
+  db: DatabaseWriter,
+  suggestionIds: Id<'stopSuggestions'>[],
+) {
+  const suggestions = await Promise.all(
+    suggestionIds.map((suggestionId) => db.get(suggestionId)),
+  )
+  const validSuggestions = suggestions.filter(
+    (suggestion): suggestion is NonNullable<typeof suggestion> => suggestion !== null,
+  )
+
+  if (validSuggestions.length !== suggestionIds.length) {
+    throw new ConvexError('Una de las sugerencias seleccionadas ya no existe.')
+  }
+
+  if (validSuggestions.some((suggestion) => suggestion.status !== 'pending')) {
+    throw new ConvexError('Solo puedes resolver sugerencias pendientes.')
+  }
+
+  return validSuggestions
 }
 
 export const getOperationalOverview = query({
@@ -283,7 +326,7 @@ export const getManagementCatalog = query({
       'admin',
     )
 
-    const [routes, drivers, vehicles, openServices, supportThreads] = await Promise.all([
+    const [routes, drivers, vehicles, openServices, supportThreads, stops, pendingStopSuggestions] = await Promise.all([
       db.query('routes').collect(),
       db
         .query('users')
@@ -294,6 +337,12 @@ export const getManagementCatalog = query({
       db
         .query('supportThreads')
         .withIndex('by_updated_at')
+        .order('desc')
+        .collect(),
+      db.query('stops').collect(),
+      db
+        .query('stopSuggestions')
+        .withIndex('by_status_created_at', (q) => q.eq('status', 'pending'))
         .order('desc')
         .collect(),
     ])
@@ -342,6 +391,22 @@ export const getManagementCatalog = query({
         )
       }
     })
+    const stopSuggestionCountByStopId = new Map<Id<'stops'>, number>()
+
+    pendingStopSuggestions.forEach((suggestion) => {
+      if (!suggestion.stopId) {
+        return
+      }
+
+      stopSuggestionCountByStopId.set(
+        suggestion.stopId,
+        (stopSuggestionCountByStopId.get(suggestion.stopId) ?? 0) + 1,
+      )
+    })
+    const stopSuggestionClusters = buildStopSuggestionClusters(
+      pendingStopSuggestions,
+      routeNameById,
+    )
 
     return {
       admin: {
@@ -464,6 +529,32 @@ export const getManagementCatalog = query({
 
           return right.updatedAt.localeCompare(left.updatedAt)
         }),
+      stops: stops
+        .map((stop) => ({
+          id: stop._id,
+          name: stop.name,
+          position: stop.position,
+          status: stop.status,
+          routeIds: stop.routeIds,
+          routeNames: stop.routeIds
+            .map((routeId) => routeNameById.get(routeId))
+            .filter((routeName): routeName is string => Boolean(routeName)),
+          source: stop.source,
+          note: stop.note,
+          reportCount: stop.reportCount,
+          createdAt: stop.createdAt,
+          validatedAt: stop.validatedAt,
+          lastReportedAt: stop.lastReportedAt,
+          pendingSuggestionCount: stopSuggestionCountByStopId.get(stop._id) ?? 0,
+        }))
+        .sort((left, right) => {
+          if (left.status !== right.status) {
+            return left.status === 'official' ? -1 : 1
+          }
+
+          return (left.name ?? '').localeCompare(right.name ?? '', 'es')
+        }),
+      stopSuggestionClusters,
     }
   },
 })
@@ -1306,6 +1397,237 @@ export const setRouteStatus = mutation({
 
     return {
       routeId,
+      status,
+    }
+  },
+})
+
+export const approveStopSuggestionCluster = mutation({
+  args: {
+    sessionToken: v.string(),
+    suggestionIds: v.array(v.id('stopSuggestions')),
+    status: v.union(v.literal('official'), v.literal('informal')),
+    name: v.optional(v.string()),
+    note: v.optional(v.string()),
+  },
+  handler: async (
+    { db },
+    { sessionToken, suggestionIds, status, name, note },
+  ) => {
+    await requireAuthenticatedSession(db, sessionToken, 'admin')
+
+    if (suggestionIds.length === 0) {
+      throw new ConvexError('Selecciona al menos una sugerencia para aprobar.')
+    }
+
+    const suggestions = await requireSuggestionGroup(db, suggestionIds)
+    const normalizedName = normalizeStopName(name)
+    const normalizedNote = note?.trim() ? note.trim() : undefined
+    const routeIds = mergeRouteIds(
+      [],
+      suggestions.map((suggestion) => suggestion.routeId),
+    )
+
+    if (routeIds.length === 0) {
+      throw new ConvexError(
+        'Las sugerencias deben estar asociadas al menos a una ruta para publicar la parada.',
+      )
+    }
+
+    const centroid = getAverageCoordinates(
+      suggestions.map((suggestion) => suggestion.position),
+    )
+    const now = new Date().toISOString()
+    const latestReportedAt = suggestions
+      .map((suggestion) => suggestion.createdAt)
+      .sort((left, right) => right.localeCompare(left))[0]
+    const existingStops = await db.query('stops').collect()
+    const stopToMerge = existingStops.find((stop) => {
+      if (stop.status === 'inactive') {
+        return false
+      }
+
+      const sharesRoute = stop.routeIds.some((routeId) => routeIds.includes(routeId))
+
+      return (
+        sharesRoute &&
+        getDistanceBetweenCoordinatesMeters(stop.position, centroid) <=
+          STOP_MERGE_RADIUS_METERS
+      )
+    })
+
+    let stopId: Id<'stops'>
+    let resolutionStatus: 'approved' | 'merged' = 'approved'
+
+    if (stopToMerge) {
+      stopId = stopToMerge._id
+      resolutionStatus = 'merged'
+
+      await db.patch(stopId, {
+        name: normalizedName ?? stopToMerge.name,
+        position: centroid,
+        status: status === 'official' ? 'official' : stopToMerge.status,
+        routeIds: mergeRouteIds(stopToMerge.routeIds, routeIds),
+        note: normalizedNote ?? stopToMerge.note,
+        reportCount: stopToMerge.reportCount + suggestions.length,
+        validatedAt: now,
+        lastReportedAt:
+          latestReportedAt && stopToMerge.lastReportedAt
+            ? [latestReportedAt, stopToMerge.lastReportedAt].sort((left, right) =>
+                right.localeCompare(left),
+              )[0]
+            : latestReportedAt ?? stopToMerge.lastReportedAt,
+      })
+    } else {
+      stopId = await db.insert('stops', {
+        name: normalizedName,
+        position: centroid,
+        status,
+        routeIds,
+        source: 'user_validated',
+        note: normalizedNote,
+        reportCount: suggestions.length,
+        createdAt: now,
+        validatedAt: now,
+        lastReportedAt: latestReportedAt,
+      })
+    }
+
+    await Promise.all(
+      suggestions.map((suggestion) =>
+        db.patch(suggestion._id, {
+          status: resolutionStatus,
+          resolvedAt: now,
+          stopId,
+        }),
+      ),
+    )
+
+    await recordSystemEvent(db, {
+      category: 'stop',
+      title:
+        resolutionStatus === 'merged'
+          ? 'Sugerencias fusionadas en parada existente'
+          : 'Parada publicada desde sugerencias',
+      description: normalizedName
+        ? `${normalizedName} fue ${resolutionStatus === 'merged' ? 'actualizada' : 'publicada'} desde reportes de pasajeros.`
+        : `Se ${resolutionStatus === 'merged' ? 'actualizo' : 'publico'} una parada desde reportes de pasajeros.`,
+      actorName: 'Administracion',
+      actorRole: 'admin',
+      targetType: 'stop',
+      targetId: stopId,
+    })
+
+    return {
+      stopId,
+      suggestionCount: suggestions.length,
+    }
+  },
+})
+
+export const rejectStopSuggestionCluster = mutation({
+  args: {
+    sessionToken: v.string(),
+    suggestionIds: v.array(v.id('stopSuggestions')),
+  },
+  handler: async ({ db }, { sessionToken, suggestionIds }) => {
+    await requireAuthenticatedSession(db, sessionToken, 'admin')
+
+    if (suggestionIds.length === 0) {
+      throw new ConvexError('Selecciona al menos una sugerencia para rechazar.')
+    }
+
+    const suggestions = await requireSuggestionGroup(db, suggestionIds)
+    const now = new Date().toISOString()
+
+    await Promise.all(
+      suggestions.map((suggestion) =>
+        db.patch(suggestion._id, {
+          status: 'rejected',
+          resolvedAt: now,
+        }),
+      ),
+    )
+
+    await recordSystemEvent(db, {
+      category: 'stop',
+      title: 'Sugerencias de parada rechazadas',
+      description: `Se descartaron ${suggestions.length} sugerencia(s) de parada.`,
+      actorName: 'Administracion',
+      actorRole: 'admin',
+      targetType: 'stop',
+    })
+
+    return {
+      rejectedCount: suggestions.length,
+      resolvedAt: now,
+    }
+  },
+})
+
+export const updateStop = mutation({
+  args: {
+    sessionToken: v.string(),
+    stopId: v.id('stops'),
+    name: v.optional(v.string()),
+    note: v.optional(v.string()),
+    status: v.union(
+      v.literal('official'),
+      v.literal('informal'),
+      v.literal('inactive'),
+    ),
+    routeIds: v.array(v.id('routes')),
+  },
+  handler: async (
+    { db },
+    { sessionToken, stopId, name, note, status, routeIds },
+  ) => {
+    await requireAuthenticatedSession(db, sessionToken, 'admin')
+
+    const stop = await requireStop(db, stopId)
+    const normalizedName = normalizeStopName(name)
+    const normalizedNote = note?.trim() ? note.trim() : undefined
+    const deduplicatedRouteIds = mergeRouteIds([], routeIds)
+
+    if (deduplicatedRouteIds.length === 0) {
+      throw new ConvexError('Asigna al menos una ruta a la parada.')
+    }
+
+    const routes = await Promise.all(
+      deduplicatedRouteIds.map((routeId) => db.get(routeId)),
+    )
+
+    if (routes.some((route) => !route)) {
+      throw new ConvexError('Una de las rutas seleccionadas ya no existe.')
+    }
+
+    const validatedAt =
+      status === 'inactive'
+        ? stop.validatedAt
+        : stop.validatedAt ?? new Date().toISOString()
+
+    await db.patch(stopId, {
+      name: normalizedName,
+      note: normalizedNote,
+      status,
+      routeIds: deduplicatedRouteIds,
+      validatedAt,
+    })
+
+    await recordSystemEvent(db, {
+      category: 'stop',
+      title: 'Parada actualizada',
+      description: normalizedName
+        ? `${normalizedName} fue actualizada desde el panel admin.`
+        : 'Una parada fue actualizada desde el panel admin.',
+      actorName: 'Administracion',
+      actorRole: 'admin',
+      targetType: 'stop',
+      targetId: stopId,
+    })
+
+    return {
+      stopId,
       status,
     }
   },

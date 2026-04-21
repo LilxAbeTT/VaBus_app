@@ -4,6 +4,10 @@ import { mutation, query, type DatabaseReader } from './_generated/server'
 import { recordSystemEvent } from './lib/systemEvents'
 import { toRouteSummary } from './lib/routes'
 import { getOperationalStatusForService } from './lib/serviceOperationalState'
+import {
+  STOP_SUGGESTION_CLUSTER_RADIUS_METERS,
+  getDistanceBetweenCoordinatesMeters,
+} from './lib/stops'
 
 function isDefined<T>(value: T | null): value is T {
   return value !== null
@@ -111,6 +115,37 @@ export const getActiveVehicles = query({
   },
 })
 
+export const getStops = query({
+  args: {},
+  handler: async ({ db }) => {
+    const [officialStops, routes] = await Promise.all([
+      db
+        .query('stops')
+        .withIndex('by_status', (q) => q.eq('status', 'official'))
+        .collect(),
+      getActiveRouteDocuments(db),
+    ])
+
+    const activeRouteIds = new Set(routes.map((route) => route._id))
+
+    return officialStops
+      .filter((stop) => stop.routeIds.some((routeId) => activeRouteIds.has(routeId)))
+      .map((stop) => ({
+        id: stop._id,
+        name: stop.name,
+        position: stop.position,
+        status: stop.status,
+        routeIds: stop.routeIds,
+        source: stop.source,
+        note: stop.note,
+        reportCount: stop.reportCount,
+        createdAt: stop.createdAt,
+        validatedAt: stop.validatedAt,
+        lastReportedAt: stop.lastReportedAt,
+      }))
+  },
+})
+
 export const submitRouteReport = mutation({
   args: {
     routeId: v.id('routes'),
@@ -154,6 +189,96 @@ export const submitRouteReport = mutation({
       reportedAt: new Date().toISOString(),
       routeId: route._id,
       issueType,
+    }
+  },
+})
+
+export const submitStopSuggestion = mutation({
+  args: {
+    routeId: v.optional(v.id('routes')),
+    position: v.object({
+      lat: v.number(),
+      lng: v.number(),
+    }),
+    reportedAsOfficial: v.union(
+      v.literal('yes'),
+      v.literal('no'),
+      v.literal('unknown'),
+    ),
+    note: v.optional(v.string()),
+    reporterKey: v.string(),
+    source: v.union(v.literal('map_center'), v.literal('current_location')),
+  },
+  handler: async (
+    { db },
+    { routeId, position, reportedAsOfficial, note, reporterKey, source },
+  ) => {
+    const trimmedReporterKey = reporterKey.trim()
+
+    if (!trimmedReporterKey) {
+      throw new ConvexError('No fue posible identificar este dispositivo para el reporte.')
+    }
+
+    const route = routeId ? await db.get(routeId) : null
+
+    if (routeId && (!route || route.status !== 'active')) {
+      throw new ConvexError('La ruta seleccionada ya no esta disponible para reportar paradas.')
+    }
+
+    const trimmedNote = note?.trim()
+    const createdAt = new Date().toISOString()
+    const recentSuggestions = await db
+      .query('stopSuggestions')
+      .withIndex('by_reporter_created_at', (q) => q.eq('reporterKey', trimmedReporterKey))
+      .order('desc')
+      .take(20)
+
+    const duplicatedSuggestion = recentSuggestions.find((suggestion) => {
+      if (suggestion.status !== 'pending') {
+        return false
+      }
+
+      const sameRoute = (suggestion.routeId ?? null) === (routeId ?? null)
+      const isClose =
+        getDistanceBetweenCoordinatesMeters(suggestion.position, position) <=
+        STOP_SUGGESTION_CLUSTER_RADIUS_METERS
+      const createdAtDeltaMs =
+        Math.abs(Date.parse(createdAt) - Date.parse(suggestion.createdAt))
+
+      return sameRoute && isClose && createdAtDeltaMs <= 30 * 60_000
+    })
+
+    if (duplicatedSuggestion) {
+      throw new ConvexError(
+        'Ya registraste recientemente una parada muy cercana para esta ruta. Gracias por ayudar.',
+      )
+    }
+
+    const suggestionId = await db.insert('stopSuggestions', {
+      position,
+      routeId: routeId ?? undefined,
+      reportedAsOfficial,
+      note: trimmedNote,
+      reporterKey: trimmedReporterKey,
+      source,
+      createdAt,
+      status: 'pending',
+    })
+
+    await recordSystemEvent(db, {
+      category: 'stop',
+      title: 'Nueva parada sugerida',
+      description: route
+        ? `Se recibio una sugerencia de parada para ${route.name}.`
+        : 'Se recibio una sugerencia de parada sin ruta seleccionada.',
+      actorName: 'Pasajero',
+      targetType: 'stop',
+      targetId: suggestionId,
+    })
+
+    return {
+      suggestionId,
+      reportedAt: createdAt,
     }
   },
 })

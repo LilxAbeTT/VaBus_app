@@ -11,12 +11,12 @@ export async function recordSystemEvent(
     targetType,
     targetId,
   }: {
-    category: 'service' | 'driver' | 'vehicle' | 'route'
+    category: 'service' | 'driver' | 'vehicle' | 'route' | 'stop'
     title: string
     description: string
     actorName?: string
     actorRole?: 'driver' | 'admin'
-    targetType?: 'service' | 'driver' | 'vehicle' | 'route'
+    targetType?: 'service' | 'driver' | 'vehicle' | 'route' | 'stop'
     targetId?: string
   },
 ) {

@@ -1,7 +1,12 @@
 import { memo } from 'react'
 import { createPortal } from 'react-dom'
 import { useEffect, useState, type ReactNode } from 'react'
-import type { BusRoute, TransportType } from '../../../types/domain'
+import type {
+  BusRoute,
+  Coordinates,
+  StopSuggestionReportedAsOfficial,
+  TransportType,
+} from '../../../types/domain'
 import type { PassengerRouteGroup } from './passengerMapViewUtils'
 import { formatDistanceRange, getTransportTypeLabel } from './passengerMapViewUtils'
 
@@ -14,6 +19,12 @@ const PASSENGER_REPORT_OPTIONS = [
 ] as const
 
 export type PassengerRouteReportIssueType = (typeof PASSENGER_REPORT_OPTIONS)[number]['value']
+
+const PASSENGER_STOP_SUGGESTION_OPTIONS = [
+  { value: 'yes', label: 'Si, parece oficial' },
+  { value: 'unknown', label: 'No estoy seguro' },
+  { value: 'no', label: 'No, parece informal' },
+] as const
 
 function useModalScrollLock() {
   useEffect(() => {
@@ -262,6 +273,210 @@ export function PassengerRouteReportModal({
             className="inline-flex min-h-11 items-center justify-center rounded-full bg-slate-900 px-5 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-slate-300"
           >
             {isSubmitting ? 'Enviando...' : 'Enviar reporte'}
+          </button>
+        </div>
+      </div>
+    </ModalFrame>
+  )
+}
+
+export function PassengerStopSuggestionModal({
+  isOpen,
+  routes,
+  selectedRouteId,
+  selectedLocationSource,
+  mapCenter,
+  userPosition,
+  reportedAsOfficial,
+  details,
+  isSubmitting,
+  submitError,
+  onClose,
+  onRouteChange,
+  onLocationSourceChange,
+  onReportedAsOfficialChange,
+  onDetailsChange,
+  onSubmit,
+}: {
+  isOpen: boolean
+  routes: BusRoute[]
+  selectedRouteId: string
+  selectedLocationSource: 'map_center' | 'current_location'
+  mapCenter: Coordinates | null
+  userPosition: Coordinates | null
+  reportedAsOfficial: StopSuggestionReportedAsOfficial
+  details: string
+  isSubmitting: boolean
+  submitError: string | null
+  onClose: () => void
+  onRouteChange: (routeId: string) => void
+  onLocationSourceChange: (value: 'map_center' | 'current_location') => void
+  onReportedAsOfficialChange: (value: StopSuggestionReportedAsOfficial) => void
+  onDetailsChange: (value: string) => void
+  onSubmit: () => void
+}) {
+  if (!isOpen) {
+    return null
+  }
+
+  const selectedPosition =
+    selectedLocationSource === 'current_location' && userPosition
+      ? userPosition
+      : mapCenter
+  const canUseCurrentLocation = userPosition !== null
+
+  return (
+    <ModalFrame
+      ariaLabel="Sugerir parada"
+      onClose={onClose}
+      className="panel max-h-[90svh] w-full max-w-lg overflow-hidden rounded-t-[1.8rem] rounded-b-none px-5 py-5 sm:max-h-[82svh] sm:rounded-[1.8rem]"
+    >
+      <div className="mx-auto mb-3 h-1.5 w-14 rounded-full bg-slate-200 sm:hidden" />
+      <div className="flex max-h-[calc(90svh-2rem)] flex-col overflow-hidden sm:max-h-[calc(82svh-2rem)]">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="eyebrow">Paradas</p>
+            <h2 className="mt-2 font-display text-2xl text-slate-900">
+              Sugerir parada
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              Marca una parada para que administracion la revise y, si corresponde,
+              la publique como oficial.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
+            aria-label="Cerrar sugerencia de parada"
+          >
+            X
+          </button>
+        </div>
+
+        <div className="mt-4 overflow-y-auto overscroll-contain pr-1">
+          <label className="block">
+            <span className="mb-2 block text-sm font-semibold text-slate-800">Ruta</span>
+            <select
+              value={selectedRouteId}
+              onChange={(event) => onRouteChange(event.target.value)}
+              className="w-full rounded-[1rem] border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-teal-400"
+            >
+              {routes.map((route) => (
+                <option key={route.id} value={route.id}>
+                  {route.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <div className="mt-4">
+            <span className="mb-2 block text-sm font-semibold text-slate-800">
+              Punto a reportar
+            </span>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => onLocationSourceChange('map_center')}
+                className={`inline-flex min-h-10 items-center justify-center rounded-full px-4 text-sm font-semibold transition ${
+                  selectedLocationSource === 'map_center'
+                    ? 'bg-slate-900 text-white'
+                    : 'border border-slate-200 bg-white text-slate-700 hover:border-teal-300 hover:text-teal-700'
+                }`}
+              >
+                Centro del mapa
+              </button>
+              <button
+                type="button"
+                onClick={() => onLocationSourceChange('current_location')}
+                disabled={!canUseCurrentLocation}
+                className={`inline-flex min-h-10 items-center justify-center rounded-full px-4 text-sm font-semibold transition ${
+                  selectedLocationSource === 'current_location'
+                    ? 'bg-slate-900 text-white'
+                    : 'border border-slate-200 bg-white text-slate-700 hover:border-teal-300 hover:text-teal-700'
+                } disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400`}
+              >
+                Mi ubicacion
+              </button>
+            </div>
+            <div className="mt-3 rounded-[1rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+              {selectedPosition ? (
+                <>
+                  <p className="font-semibold text-slate-800">
+                    {selectedLocationSource === 'current_location'
+                      ? 'Se enviara tu ubicacion actual.'
+                      : 'Se enviara el centro actual del mapa.'}
+                  </p>
+                  <p className="mt-1">
+                    Lat {selectedPosition.lat.toFixed(5)} · Lng {selectedPosition.lng.toFixed(5)}
+                  </p>
+                </>
+              ) : (
+                <p>
+                  Centra el mapa sobre la parada o activa tu ubicacion para continuar.
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-4">
+            <span className="mb-2 block text-sm font-semibold text-slate-800">
+              Esta parada parece oficial?
+            </span>
+            <div className="flex flex-wrap gap-2">
+              {PASSENGER_STOP_SUGGESTION_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => onReportedAsOfficialChange(option.value)}
+                  className={`inline-flex min-h-10 items-center justify-center rounded-full px-4 text-sm font-semibold transition ${
+                    reportedAsOfficial === option.value
+                      ? 'bg-slate-900 text-white'
+                      : 'border border-slate-200 bg-white text-slate-700 hover:border-teal-300 hover:text-teal-700'
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <label className="mt-4 block">
+            <span className="mb-2 block text-sm font-semibold text-slate-800">
+              Referencia opcional
+            </span>
+            <textarea
+              value={details}
+              onChange={(event) => onDetailsChange(event.target.value.slice(0, 180))}
+              rows={3}
+              placeholder="Ejemplo: esta junto a una farmacia o tiene letrero azul."
+              className="w-full resize-none rounded-[1rem] border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-teal-400"
+            />
+            <span className="mt-2 block text-xs text-slate-500">{details.length}/180</span>
+          </label>
+
+          {submitError ? (
+            <div className="mt-4 rounded-[1rem] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              {submitError}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex min-h-11 items-center justify-center rounded-full border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:text-slate-900"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={onSubmit}
+            disabled={isSubmitting || routes.length === 0 || selectedPosition === null}
+            className="inline-flex min-h-11 items-center justify-center rounded-full bg-slate-900 px-5 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+          >
+            {isSubmitting ? 'Enviando...' : 'Enviar sugerencia'}
           </button>
         </div>
       </div>

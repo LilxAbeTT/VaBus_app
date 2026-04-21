@@ -26,6 +26,10 @@ function formatDateTime(value?: string) {
     : 'Sin registro'
 }
 
+function formatCoordinates(lat: number, lng: number) {
+  return `${lat.toFixed(5)}, ${lng.toFixed(5)}`
+}
+
 function getErrorMessage(error: unknown) {
   if (error instanceof ConvexError) return String(error.data)
   if (error instanceof Error) return error.message
@@ -37,10 +41,12 @@ function getPillTone(value: string) {
     case 'active':
     case 'active_recent':
     case 'available':
+    case 'official':
       return 'bg-emerald-100 text-emerald-700'
     case 'paused':
     case 'active_stale':
     case 'maintenance':
+    case 'informal':
       return 'bg-amber-100 text-amber-700'
     case 'inactive':
     case 'probably_stopped':
@@ -110,6 +116,11 @@ function AdminDashboardContent({
   const pauseService = useMutation(api.admin.pauseService)
   const resumeService = useMutation(api.admin.resumeService)
   const finishService = useMutation(api.admin.finishService)
+  const approveStopSuggestionCluster = useMutation(
+    api.admin.approveStopSuggestionCluster,
+  )
+  const rejectStopSuggestionCluster = useMutation(api.admin.rejectStopSuggestionCluster)
+  const updateStop = useMutation(api.admin.updateStop)
   const replySupportThread = useMutation(api.admin.replySupportThread)
   const markSupportThreadSeen = useMutation(api.admin.markSupportThreadSeen)
   const setSupportThreadStatus = useMutation(api.admin.setSupportThreadStatus)
@@ -130,8 +141,17 @@ function AdminDashboardContent({
   })
   const [editingDriverId, setEditingDriverId] = useState<string | null>(null)
   const [editingVehicleId, setEditingVehicleId] = useState<string | null>(null)
+  const [editingStopId, setEditingStopId] = useState<string | null>(null)
+  const [stopForm, setStopForm] = useState({
+    name: '',
+    note: '',
+    status: 'official' as 'official' | 'informal' | 'inactive',
+    routeIds: [] as string[],
+  })
   const [serviceSearch, setServiceSearch] = useState('')
   const [routeSearch, setRouteSearch] = useState('')
+  const [stopSearch, setStopSearch] = useState('')
+  const [stopSuggestionSearch, setStopSuggestionSearch] = useState('')
   const [supportSearch, setSupportSearch] = useState('')
   const [driverSearch, setDriverSearch] = useState('')
   const [vehicleSearch, setVehicleSearch] = useState('')
@@ -172,6 +192,24 @@ function AdminDashboardContent({
           .includes(supportSearch.toLowerCase()),
       ),
     [dashboard.supportThreads, supportSearch],
+  )
+  const filteredStops = useMemo(
+    () =>
+      dashboard.stops.filter((stop) =>
+        `${stop.name ?? ''} ${stop.routeNames.join(' ')} ${stop.note ?? ''}`
+          .toLowerCase()
+          .includes(stopSearch.toLowerCase()),
+      ),
+    [dashboard.stops, stopSearch],
+  )
+  const filteredStopSuggestionClusters = useMemo(
+    () =>
+      dashboard.stopSuggestionClusters.filter((cluster) =>
+        `${cluster.routeName ?? ''} ${cluster.notes.join(' ')} ${formatCoordinates(cluster.center.lat, cluster.center.lng)}`
+          .toLowerCase()
+          .includes(stopSuggestionSearch.toLowerCase()),
+      ),
+    [dashboard.stopSuggestionClusters, stopSuggestionSearch],
   )
   const filteredDrivers = useMemo(
     () =>
@@ -293,6 +331,40 @@ function AdminDashboardContent({
         defaultRouteId: '',
       })
       setEditingVehicleId(null)
+    })
+
+  const handleStopRouteToggle = (routeId: string) => {
+    setStopForm((current) => ({
+      ...current,
+      routeIds: current.routeIds.includes(routeId)
+        ? current.routeIds.filter((currentRouteId) => currentRouteId !== routeId)
+        : [...current.routeIds, routeId],
+    }))
+  }
+
+  const handleStopSubmit = () =>
+    runMutation(async () => {
+      if (!editingStopId) {
+        setErrorMessage('Selecciona una parada existente para editarla.')
+        return
+      }
+
+      await updateStop({
+        sessionToken,
+        stopId: editingStopId as Id<'stops'>,
+        name: stopForm.name.trim() || undefined,
+        note: stopForm.note.trim() || undefined,
+        status: stopForm.status,
+        routeIds: stopForm.routeIds as Id<'routes'>[],
+      })
+      setFeedbackMessage('Parada actualizada.')
+      setEditingStopId(null)
+      setStopForm({
+        name: '',
+        note: '',
+        status: 'official',
+        routeIds: [],
+      })
     })
 
   const handleSupportReply = (threadId: string) => {
@@ -668,6 +740,314 @@ function AdminDashboardContent({
             </p>
           )}
         </div>
+      </section>
+
+      <section className="grid gap-6 xl:grid-cols-2">
+        <article className="panel px-4 py-5 sm:px-6 sm:py-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="eyebrow">Paradas sugeridas</p>
+              <h3 className="mt-2 font-display text-xl text-slate-900 sm:text-2xl">
+                Revision de reportes
+              </h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                Revisa los puntos reportados por pasajeros y publicalos cuando ya
+                tengan suficiente señal o contexto.
+              </p>
+            </div>
+            <input
+              type="text"
+              value={stopSuggestionSearch}
+              onChange={(event) => setStopSuggestionSearch(event.target.value)}
+              placeholder="Buscar sugerencia"
+              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-teal-500 focus:ring-4 focus:ring-teal-100 sm:max-w-sm"
+            />
+          </div>
+
+          <div className="mt-5 space-y-4">
+            {filteredStopSuggestionClusters.length > 0 ? (
+              filteredStopSuggestionClusters.map((cluster) => (
+                <article
+                  key={cluster.id}
+                  className="rounded-[1.45rem] border border-slate-200 bg-white px-4 py-4"
+                >
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-display text-lg text-slate-900">
+                          {cluster.routeName ?? 'Ruta por confirmar'}
+                        </p>
+                        <span className="inline-flex rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700">
+                          {cluster.totalReports} reporte(s)
+                        </span>
+                      </div>
+                      <div className="mt-3 grid gap-2 text-sm text-slate-600">
+                        <p>
+                          Punto sugerido: {formatCoordinates(cluster.center.lat, cluster.center.lng)}
+                        </p>
+                        <p>Ultimo reporte: {formatDateTime(cluster.latestReportedAt)}</p>
+                        <p>
+                          Oficial: {cluster.officialYesCount} · Informal: {cluster.officialNoCount}
+                          {' '}· No seguro: {cluster.unknownCount}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          runMutation(async () => {
+                            await approveStopSuggestionCluster({
+                              sessionToken,
+                              suggestionIds: cluster.suggestionIds as Id<'stopSuggestions'>[],
+                              status: 'official',
+                            })
+                            setFeedbackMessage('Parada oficial publicada.')
+                          })
+                        }
+                        disabled={isSubmitting}
+                        className="inline-flex min-h-10 items-center justify-center rounded-full bg-slate-900 px-4 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                      >
+                        Publicar oficial
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          runMutation(async () => {
+                            await approveStopSuggestionCluster({
+                              sessionToken,
+                              suggestionIds: cluster.suggestionIds as Id<'stopSuggestions'>[],
+                              status: 'informal',
+                            })
+                            setFeedbackMessage('Parada informal registrada.')
+                          })
+                        }
+                        disabled={isSubmitting}
+                        className="inline-flex min-h-10 items-center justify-center rounded-full border border-sky-200 bg-sky-50 px-4 text-sm font-semibold text-sky-800 transition hover:border-sky-300 hover:bg-sky-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+                      >
+                        Guardar informal
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          runMutation(async () => {
+                            await rejectStopSuggestionCluster({
+                              sessionToken,
+                              suggestionIds: cluster.suggestionIds as Id<'stopSuggestions'>[],
+                            })
+                            setFeedbackMessage('Sugerencias descartadas.')
+                          })
+                        }
+                        disabled={isSubmitting}
+                        className="inline-flex min-h-10 items-center justify-center rounded-full border border-rose-200 bg-rose-50 px-4 text-sm font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+                      >
+                        Descartar
+                      </button>
+                    </div>
+                  </div>
+
+                  {cluster.notes.length > 0 ? (
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {cluster.notes.map((note) => (
+                        <span
+                          key={note}
+                          className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-600"
+                        >
+                          {note}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                </article>
+              ))
+            ) : (
+              <p className="text-sm text-slate-600">
+                No hay sugerencias de paradas pendientes con los filtros actuales.
+              </p>
+            )}
+          </div>
+        </article>
+
+        <article className="panel px-4 py-5 sm:px-6 sm:py-6">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="eyebrow">Paradas publicadas</p>
+              <h3 className="mt-2 font-display text-xl text-slate-900 sm:text-2xl">
+                Catalogo de paradas
+              </h3>
+            </div>
+            {editingStopId ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingStopId(null)
+                  setStopForm({
+                    name: '',
+                    note: '',
+                    status: 'official',
+                    routeIds: [],
+                  })
+                }}
+                className="text-sm font-semibold text-slate-500 transition hover:text-slate-800"
+              >
+                Cancelar edicion
+              </button>
+            ) : null}
+          </div>
+
+          <input
+            type="text"
+            value={stopSearch}
+            onChange={(event) => setStopSearch(event.target.value)}
+            placeholder="Buscar parada"
+            className="mt-4 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-teal-500 focus:ring-4 focus:ring-teal-100"
+          />
+
+          <div className="mt-5 grid gap-4">
+            <input
+              type="text"
+              value={stopForm.name}
+              onChange={(event) =>
+                setStopForm((current) => ({ ...current, name: event.target.value }))
+              }
+              placeholder="Nombre de la parada"
+              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-slate-900 outline-none transition focus:border-teal-500 focus:ring-4 focus:ring-teal-100"
+            />
+            <textarea
+              value={stopForm.note}
+              onChange={(event) =>
+                setStopForm((current) => ({ ...current, note: event.target.value }))
+              }
+              rows={3}
+              placeholder="Referencia operativa opcional"
+              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-slate-900 outline-none transition focus:border-teal-500 focus:ring-4 focus:ring-teal-100"
+            />
+            <select
+              value={stopForm.status}
+              onChange={(event) =>
+                setStopForm((current) => ({
+                  ...current,
+                  status: event.target.value as 'official' | 'informal' | 'inactive',
+                }))
+              }
+              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-slate-900 outline-none transition focus:border-teal-500 focus:ring-4 focus:ring-teal-100"
+            >
+              <option value="official">Oficial</option>
+              <option value="informal">Informal</option>
+              <option value="inactive">Inactiva</option>
+            </select>
+            <div className="rounded-[1.25rem] border border-slate-200 bg-slate-50 px-4 py-4">
+              <p className="text-sm font-semibold text-slate-800">Rutas asociadas</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {dashboard.routes.map((route) => {
+                  const isSelected = stopForm.routeIds.includes(route.id)
+
+                  return (
+                    <button
+                      key={route.id}
+                      type="button"
+                      onClick={() => handleStopRouteToggle(route.id)}
+                      className={`inline-flex min-h-10 items-center justify-center rounded-full px-4 text-sm font-semibold transition ${
+                        isSelected
+                          ? 'bg-slate-900 text-white'
+                          : 'border border-slate-200 bg-white text-slate-700 hover:border-teal-300 hover:text-teal-700'
+                      }`}
+                    >
+                      {route.name}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleStopSubmit}
+              disabled={isSubmitting || !editingStopId}
+              className="flex min-h-11 items-center justify-center rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+            >
+              Guardar parada
+            </button>
+          </div>
+
+          <div className="mt-6 space-y-3">
+            {filteredStops.map((stop) => (
+              <article
+                key={stop.id}
+                className="rounded-2xl border border-slate-200 bg-white px-4 py-4"
+              >
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-display text-lg text-slate-900">
+                        {stop.name ?? 'Parada sin nombre'}
+                      </p>
+                      <span
+                        className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getPillTone(stop.status)}`}
+                      >
+                        {stop.status === 'official'
+                          ? 'Oficial'
+                          : stop.status === 'informal'
+                            ? 'Informal'
+                            : 'Inactiva'}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-sm text-slate-600">
+                      {formatCoordinates(stop.position.lat, stop.position.lng)}
+                    </p>
+                    <p className="mt-2 text-sm text-slate-500">
+                      Rutas: {stop.routeNames.join(', ') || 'Sin ruta'}
+                    </p>
+                    <p className="mt-2 text-sm text-slate-500">
+                      Reportes: {stop.reportCount} · Pendientes cerca: {stop.pendingSuggestionCount}
+                    </p>
+                    <p className="mt-2 text-sm text-slate-500">
+                      Ultimo reporte: {formatDateTime(stop.lastReportedAt)}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingStopId(stop.id)
+                        setStopForm({
+                          name: stop.name ?? '',
+                          note: stop.note ?? '',
+                          status: stop.status,
+                          routeIds: stop.routeIds,
+                        })
+                      }}
+                      className="inline-flex rounded-full border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-700 transition hover:border-teal-300 hover:text-teal-700"
+                    >
+                      Editar
+                    </button>
+                    {stop.status !== 'official' ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          runMutation(async () => {
+                            await updateStop({
+                              sessionToken,
+                              stopId: stop.id as Id<'stops'>,
+                              name: stop.name,
+                              note: stop.note,
+                              status: 'official',
+                              routeIds: stop.routeIds as Id<'routes'>[],
+                            })
+                            setFeedbackMessage('Parada marcada como oficial.')
+                          })
+                        }
+                        disabled={isSubmitting}
+                        className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+                      >
+                        Hacer oficial
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        </article>
       </section>
 
       <section className="grid gap-6 xl:grid-cols-2">

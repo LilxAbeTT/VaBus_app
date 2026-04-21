@@ -2,9 +2,14 @@ import { memo, useCallback, useState } from 'react'
 import { useMutation } from 'convex/react'
 import type { Id } from '../../../../convex/_generated/dataModel'
 import { api } from '../../../../convex/_generated/api'
-import type { BusRoute } from '../../../types/domain'
+import type {
+  BusRoute,
+  Coordinates,
+  StopSuggestionReportedAsOfficial,
+} from '../../../types/domain'
 import {
   PassengerRouteReportModal,
+  PassengerStopSuggestionModal,
   type PassengerRouteReportIssueType,
 } from './PassengerMapOverlays'
 
@@ -61,17 +66,41 @@ const PASSENGER_FAQS = [
   },
 ]
 
+const passengerReporterStorageKey = 'cabobus.passenger-reporter-key'
+
+function getPassengerReporterKey() {
+  if (typeof window === 'undefined') {
+    return 'server-render'
+  }
+
+  const existingKey = window.localStorage.getItem(passengerReporterStorageKey)
+
+  if (existingKey) {
+    return existingKey
+  }
+
+  const nextKey = window.crypto.randomUUID()
+  window.localStorage.setItem(passengerReporterStorageKey, nextKey)
+  return nextKey
+}
+
 export const PassengerMapSidebarAssistPanel = memo(function PassengerMapSidebarAssistPanel({
   routeOptions,
   defaultReportRouteId,
+  mapCenter,
+  userPosition,
 }: {
   routeOptions: BusRoute[]
   defaultReportRouteId: string
+  mapCenter: Coordinates | null
+  userPosition: Coordinates | null
 }) {
   const submitRouteReport = useMutation(api.passengerMap.submitRouteReport)
+  const submitStopSuggestion = useMutation(api.passengerMap.submitStopSuggestion)
   const [isHelpOpen, setHelpOpen] = useState(false)
   const [openFaqQuestion, setOpenFaqQuestion] = useState<string | null>(null)
   const [isReportModalOpen, setReportModalOpen] = useState(false)
+  const [isStopModalOpen, setStopModalOpen] = useState(false)
   const [reportRouteId, setReportRouteId] = useState('')
   const [reportIssueType, setReportIssueType] =
     useState<PassengerRouteReportIssueType>('bus_never_arrived')
@@ -79,6 +108,16 @@ export const PassengerMapSidebarAssistPanel = memo(function PassengerMapSidebarA
   const [isSubmittingReport, setSubmittingReport] = useState(false)
   const [reportError, setReportError] = useState<string | null>(null)
   const [reportSuccessMessage, setReportSuccessMessage] = useState<string | null>(null)
+  const [stopRouteId, setStopRouteId] = useState('')
+  const [stopLocationSource, setStopLocationSource] = useState<
+    'map_center' | 'current_location'
+  >('map_center')
+  const [stopReportedAsOfficial, setStopReportedAsOfficial] =
+    useState<StopSuggestionReportedAsOfficial>('yes')
+  const [stopDetails, setStopDetails] = useState('')
+  const [isSubmittingStop, setSubmittingStop] = useState(false)
+  const [stopError, setStopError] = useState<string | null>(null)
+  const [stopSuccessMessage, setStopSuccessMessage] = useState<string | null>(null)
 
   const openReportModal = useCallback(() => {
     setReportSuccessMessage(null)
@@ -89,6 +128,16 @@ export const PassengerMapSidebarAssistPanel = memo(function PassengerMapSidebarA
     setReportModalOpen(true)
   }, [defaultReportRouteId])
 
+  const openStopModal = useCallback(() => {
+    setStopSuccessMessage(null)
+    setStopRouteId(defaultReportRouteId)
+    setStopLocationSource(userPosition ? 'current_location' : 'map_center')
+    setStopReportedAsOfficial('yes')
+    setStopDetails('')
+    setStopError(null)
+    setStopModalOpen(true)
+  }, [defaultReportRouteId, userPosition])
+
   const closeReportModal = useCallback(() => {
     if (isSubmittingReport) {
       return
@@ -97,6 +146,15 @@ export const PassengerMapSidebarAssistPanel = memo(function PassengerMapSidebarA
     setReportModalOpen(false)
     setReportError(null)
   }, [isSubmittingReport])
+
+  const closeStopModal = useCallback(() => {
+    if (isSubmittingStop) {
+      return
+    }
+
+    setStopModalOpen(false)
+    setStopError(null)
+  }, [isSubmittingStop])
 
   const handleSubmitRouteReport = useCallback(async () => {
     if (!reportRouteId) {
@@ -125,6 +183,60 @@ export const PassengerMapSidebarAssistPanel = memo(function PassengerMapSidebarA
     }
   }, [reportDetails, reportIssueType, reportRouteId, submitRouteReport])
 
+  const handleSubmitStopSuggestion = useCallback(async () => {
+    if (!stopRouteId) {
+      setStopError('Selecciona una ruta para enviar la sugerencia.')
+      return
+    }
+
+    const selectedPosition =
+      stopLocationSource === 'current_location' && userPosition
+        ? userPosition
+        : mapCenter
+
+    if (!selectedPosition) {
+      setStopError(
+        'Centra el mapa sobre la parada o activa tu ubicacion antes de enviar la sugerencia.',
+      )
+      return
+    }
+
+    setSubmittingStop(true)
+    setStopError(null)
+
+    try {
+      await submitStopSuggestion({
+        routeId: stopRouteId as Id<'routes'>,
+        position: selectedPosition,
+        reportedAsOfficial: stopReportedAsOfficial,
+        note: stopDetails.trim() ? stopDetails.trim() : undefined,
+        reporterKey: getPassengerReporterKey(),
+        source: stopLocationSource,
+      })
+
+      setStopModalOpen(false)
+      setStopSuccessMessage(
+        'Sugerencia enviada. Administracion la revisara antes de publicarla.',
+      )
+    } catch (error) {
+      setStopError(
+        error instanceof Error
+          ? error.message
+          : 'No fue posible enviar tu sugerencia de parada.',
+      )
+    } finally {
+      setSubmittingStop(false)
+    }
+  }, [
+    mapCenter,
+    stopDetails,
+    stopLocationSource,
+    stopReportedAsOfficial,
+    stopRouteId,
+    submitStopSuggestion,
+    userPosition,
+  ])
+
   return (
     <>
       <section className="mt-4 rounded-[1.25rem] border border-slate-200 bg-slate-50 px-4 py-4">
@@ -144,11 +256,24 @@ export const PassengerMapSidebarAssistPanel = memo(function PassengerMapSidebarA
             <AlertIcon />
             Reportar ruta
           </button>
+          <button
+            type="button"
+            onClick={openStopModal}
+            className="inline-flex min-h-10 items-center justify-center rounded-full border border-sky-200 bg-sky-50 px-4 text-sm font-semibold text-sky-800 transition hover:border-sky-300 hover:bg-sky-100"
+          >
+            Sugerir parada
+          </button>
         </div>
 
         {reportSuccessMessage ? (
           <div className="mt-3 rounded-[1rem] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
             {reportSuccessMessage}
+          </div>
+        ) : null}
+
+        {stopSuccessMessage ? (
+          <div className="mt-3 rounded-[1rem] border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-700">
+            {stopSuccessMessage}
           </div>
         ) : null}
 
@@ -247,6 +372,27 @@ export const PassengerMapSidebarAssistPanel = memo(function PassengerMapSidebarA
         onDetailsChange={setReportDetails}
         onSubmit={() => {
           void handleSubmitRouteReport()
+        }}
+      />
+
+      <PassengerStopSuggestionModal
+        isOpen={isStopModalOpen}
+        routes={routeOptions}
+        selectedRouteId={stopRouteId}
+        selectedLocationSource={stopLocationSource}
+        mapCenter={mapCenter}
+        userPosition={userPosition}
+        reportedAsOfficial={stopReportedAsOfficial}
+        details={stopDetails}
+        isSubmitting={isSubmittingStop}
+        submitError={stopError}
+        onClose={closeStopModal}
+        onRouteChange={setStopRouteId}
+        onLocationSourceChange={setStopLocationSource}
+        onReportedAsOfficialChange={setStopReportedAsOfficial}
+        onDetailsChange={setStopDetails}
+        onSubmit={() => {
+          void handleSubmitStopSuggestion()
         }}
       />
     </>

@@ -34,9 +34,13 @@ import {
 } from '../../../lib/mapGeometry'
 import {
   getMinimumDistanceToRouteMeters,
-  getOperationalStatusLabel,
 } from '../../../lib/trackingSignal'
-import type { BusRoute, PassengerMapSnapshot, TransportType } from '../../../types/domain'
+import type {
+  BusRoute,
+  BusStop,
+  PassengerMapSnapshot,
+  TransportType,
+} from '../../../types/domain'
 import { usePassengerGeolocation } from '../hooks/usePassengerGeolocation'
 import { usePassengerMapSnapshot } from '../hooks/usePassengerMapSnapshot'
 import { usePassengerRouteSelection } from '../hooks/usePassengerRouteSelection'
@@ -50,10 +54,9 @@ import {
 import { PassengerMapSidebar } from './PassengerMapSidebar'
 import {
   decorateVehiclesWithRouteMeta,
-  formatLastUpdate,
+  formatLastUpdateTime,
   getDisplayedRoutes,
   getDisplayedVehicles,
-  getFeaturedVehicle,
   getNearbyQuickRouteEntriesFromSortedRoutes,
   getLocationStatusCopy,
   getRecommendedRouteEntry,
@@ -81,11 +84,14 @@ const VEHICLES_SOURCE_ID = 'passenger-map-vehicles'
 const VEHICLE_HALO_LAYER_ID = 'passenger-map-vehicle-halo'
 const VEHICLES_LAYER_ID = 'passenger-map-vehicles'
 const SELECTED_VEHICLE_SOURCE_ID = 'passenger-map-selected-vehicle'
+const STOPS_SOURCE_ID = 'passenger-map-stops'
+const STOPS_LAYER_ID = 'passenger-map-stops'
 const USER_SOURCE_ID = 'passenger-map-user'
 const USER_ACCURACY_SOURCE_ID = 'passenger-map-user-accuracy-source'
 const USER_ACCURACY_LAYER_ID = 'passenger-map-user-accuracy'
 const USER_POSITION_LAYER_ID = 'passenger-map-user-position'
 const PASSENGER_MAP_REFRESH_INTERVAL_MS = 15_000
+const PASSENGER_MAP_FOLLOW_RESUME_DELAY_MS = 3_000
 
 type RouteFeatureProperties = {
   color: string
@@ -103,6 +109,10 @@ type VehicleFeatureProperties = {
 
 type UserFeatureProperties = {
   kind: 'position' | 'accuracy'
+}
+
+type StopFeatureProperties = {
+  stopId: string
 }
 
 function emptyFeatureCollection(): FeatureCollection<Geometry> {
@@ -244,6 +254,22 @@ function buildUserFeatureCollection(
   return { type: 'FeatureCollection', features }
 }
 
+function buildStopFeatureCollection(
+  stops: BusStop[],
+): FeatureCollection<Point, StopFeatureProperties> {
+  return {
+    type: 'FeatureCollection',
+    features: stops.map((stop) => ({
+      type: 'Feature',
+      id: stop.id,
+      geometry: { type: 'Point', coordinates: toLngLat(stop.position) },
+      properties: {
+        stopId: stop.id,
+      },
+    })),
+  }
+}
+
 function escapeHtml(value: string) {
   return value
     .replaceAll('&', '&amp;')
@@ -253,13 +279,51 @@ function escapeHtml(value: string) {
     .replaceAll("'", '&#39;')
 }
 
+function getVehiclePopupSignalMeta(
+  status: PassengerMapVehicleView['operationalStatus'],
+) {
+  switch (status) {
+    case 'active_recent':
+      return { label: 'Reciente', color: '#15803d' }
+    case 'active_stale':
+      return { label: 'Atrasada', color: '#c2410c' }
+    case 'probably_stopped':
+      return { label: 'Desactivada', color: '#dc2626' }
+    default:
+      return { label: 'Sin estado', color: '#475569' }
+  }
+}
+
 function createVehiclePopupHtml(vehicle: PassengerMapVehicleView) {
+  const signalMeta = getVehiclePopupSignalMeta(vehicle.operationalStatus)
+
   return `
-    <div class="space-y-1">
-      <p class="text-sm font-semibold text-slate-900">${escapeHtml(vehicle.unitNumber)}</p>
-      <p class="text-sm text-slate-600">${escapeHtml(vehicle.routeName)}</p>
-      <p class="text-xs font-semibold uppercase tracking-[0.18em] text-teal-700">${escapeHtml(getOperationalStatusLabel(vehicle.operationalStatus))}</p>
-      <p class="text-xs text-slate-500">Actualizado: ${escapeHtml(formatLastUpdate(vehicle.lastUpdate))}</p>
+    <div class="min-w-[164px] space-y-1.5">
+      <p class="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Ruta</p>
+      <p class="text-sm font-semibold leading-5 text-slate-900">${escapeHtml(vehicle.routeName)}</p>
+      <p class="text-sm text-slate-700">Unidad <span class="font-semibold text-slate-900">${escapeHtml(vehicle.unitNumber)}</span></p>
+      <p class="text-xs font-semibold" style="color:${signalMeta.color}">
+        Ultima actualizacion ${escapeHtml(formatLastUpdateTime(vehicle.lastUpdate))} · ${escapeHtml(signalMeta.label)}
+      </p>
+    </div>
+  `.trim()
+}
+
+function createStopPopupHtml(stop: BusStop, routeById: Map<string, BusRoute>) {
+  const routeNames = stop.routeIds
+    .map((routeId) => routeById.get(routeId)?.name)
+    .filter((routeName): routeName is string => Boolean(routeName))
+
+  return `
+    <div class="min-w-[160px] space-y-1.5">
+      <p class="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Parada oficial</p>
+      <p class="text-sm font-semibold leading-5 text-slate-900">${escapeHtml(stop.name ?? 'Parada en revision validada')}</p>
+      ${
+        routeNames.length > 0
+          ? `<p class="text-xs text-slate-600">${escapeHtml(routeNames.join(' · '))}</p>`
+          : ''
+      }
+      <p class="text-xs font-semibold text-sky-700">Reportes consolidados: ${stop.reportCount}</p>
     </div>
   `.trim()
 }
@@ -309,9 +373,11 @@ function PassengerMapContent({ snapshot }: { snapshot: PassengerMapSnapshot }) {
   const [isInfoOpen, setInfoOpen] = useState(false)
   const [routeInfoRouteId, setRouteInfoRouteId] = useState<string | null>(null)
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null)
+  const [selectedStopId, setSelectedStopId] = useState<string | null>(null)
   const [centerOnUserRequestCount, setCenterOnUserRequestCount] = useState(0)
   const [mapLoadStatus, setMapLoadStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [mapLoadError, setMapLoadError] = useState<string | null>(null)
+  const [mapCenter, setMapCenter] = useState<LatLngPoint | null>(null)
   const [shouldShowPinchHint, setShouldShowPinchHint] = useState(() => {
     if (typeof window === 'undefined') {
       return false
@@ -475,18 +541,21 @@ function PassengerMapContent({ snapshot }: { snapshot: PassengerMapSnapshot }) {
     () => (selectedVehicleId ? vehicleById.get(selectedVehicleId) ?? null : null),
     [selectedVehicleId, vehicleById],
   )
-  const featuredVehicle = useMemo(
-    () =>
-      getFeaturedVehicle(
-        selectedRoute ? selectedRouteVehicles : displayedVehicles,
-        userPosition ?? null,
-      ),
-    [displayedVehicles, selectedRoute, selectedRouteVehicles, userPosition],
+  const stopById = useMemo(
+    () => new Map(snapshot.stops.map((stop) => [stop.id, stop] as const)),
+    [snapshot.stops],
   )
-  const selectedVehicleSummary = selectedVehicle ?? featuredVehicle ?? null
-  const selectedRouteDistanceMeters = selectedRoute
-    ? routeDistanceById.get(selectedRoute.id) ?? null
-    : null
+  const selectedStop = useMemo(
+    () => (selectedStopId ? stopById.get(selectedStopId) ?? null : null),
+    [selectedStopId, stopById],
+  )
+  const displayedStops = useMemo(
+    () =>
+      selectedRoute
+        ? snapshot.stops.filter((stop) => stop.routeIds.includes(selectedRoute.id))
+        : [],
+    [selectedRoute, snapshot.stops],
+  )
   const routeInfoRoute =
     routeInfoRouteId ? routeById.get(routeInfoRouteId) ?? null : null
   const visibleVehiclesCount = selectedRoute
@@ -506,6 +575,14 @@ function PassengerMapContent({ snapshot }: { snapshot: PassengerMapSnapshot }) {
   const attemptedFallbackStyleRef = useRef(false)
   const didFitInitialViewRef = useRef(false)
   const lastFittedViewKeyRef = useRef<string | null>(null)
+  const isProgrammaticMapMoveRef = useRef(false)
+  const isVehicleFollowPausedRef = useRef(false)
+  const followResumeTimeoutRef = useRef<number | null>(null)
+  const followedVehiclePositionRef = useRef<{
+    vehicleId: string
+    lat: number
+    lng: number
+  } | null>(null)
   const mapPerformanceProfile = useMemo(() => getMapRuntimePerformanceProfile(), [])
   const showPinchHint = mapLoadStatus === 'ready' && shouldShowPinchHint
   const routeFeatureCollection = useMemo(
@@ -519,6 +596,10 @@ function PassengerMapContent({ snapshot }: { snapshot: PassengerMapSnapshot }) {
   const selectedVehicleFeatureCollection = useMemo(
     () => buildSelectedVehicleFeatureCollection(selectedVehicle),
     [selectedVehicle],
+  )
+  const stopFeatureCollection = useMemo(
+    () => buildStopFeatureCollection(displayedStops),
+    [displayedStops],
   )
   const userFeatureCollection = useMemo(
     () => buildUserFeatureCollection(userPosition, null),
@@ -546,6 +627,46 @@ function PassengerMapContent({ snapshot }: { snapshot: PassengerMapSnapshot }) {
     return () => window.clearTimeout(timeoutId)
   }, [showPinchHint])
 
+  const clearFollowResumeTimeout = useCallback(() => {
+    if (
+      typeof window !== 'undefined' &&
+      followResumeTimeoutRef.current !== null
+    ) {
+      window.clearTimeout(followResumeTimeoutRef.current)
+    }
+
+    followResumeTimeoutRef.current = null
+  }, [])
+
+  const clearSelectedVehicle = useCallback(() => {
+    clearFollowResumeTimeout()
+    isVehicleFollowPausedRef.current = false
+    followedVehiclePositionRef.current = null
+    setSelectedVehicleId(null)
+  }, [clearFollowResumeTimeout])
+
+  const clearSelectedStop = useCallback(() => {
+    setSelectedStopId(null)
+  }, [])
+
+  const runProgrammaticMapMove = useCallback(
+    (transition: (map: MapLibreMap) => void) => {
+      const map = mapRef.current
+
+      if (!map) {
+        return
+      }
+
+      isProgrammaticMapMoveRef.current = true
+      transition(map)
+
+      if (!map.isMoving()) {
+        isProgrammaticMapMoveRef.current = false
+      }
+    },
+    [],
+  )
+
   const focusRoute = useCallback(
     (routeId: string) => {
       const route = routeById.get(routeId)
@@ -553,10 +674,11 @@ function PassengerMapContent({ snapshot }: { snapshot: PassengerMapSnapshot }) {
       if (!route) return
 
       setRouteCarouselTransportType(route.transportType)
-      setSelectedVehicleId(null)
+      clearSelectedVehicle()
+      clearSelectedStop()
       setSelectedRouteId(route.id)
     },
-    [routeById, setSelectedRouteId],
+    [clearSelectedStop, clearSelectedVehicle, routeById, setSelectedRouteId],
   )
 
   const revealMapPanel = useCallback(() => {
@@ -581,17 +703,48 @@ function PassengerMapContent({ snapshot }: { snapshot: PassengerMapSnapshot }) {
 
     popupRef.current?.remove()
     popupRef.current = new mapLibre.Popup({
-      closeButton: true,
-      closeOnClick: true,
-      offset: 18,
+      closeButton: false,
+      closeOnClick: false,
+      closeOnMove: false,
+      offset: 16,
+      maxWidth: '220px',
     })
       .setLngLat([vehicle.position.lng, vehicle.position.lat])
       .setHTML(createVehiclePopupHtml(vehicle))
       .addTo(map)
   }, [])
 
+  const openStopPopup = useCallback(
+    (stop: BusStop) => {
+      const map = mapRef.current
+      const mapLibre = mapLibreRef.current
+
+      if (!map || !mapLibre) {
+        return
+      }
+
+      popupRef.current?.remove()
+      popupRef.current = new mapLibre.Popup({
+        closeButton: false,
+        closeOnClick: true,
+        closeOnMove: false,
+        offset: 14,
+        maxWidth: '220px',
+      })
+        .setLngLat([stop.position.lng, stop.position.lat])
+        .setHTML(createStopPopupHtml(stop, routeById))
+        .addTo(map)
+    },
+    [routeById],
+  )
+
   const focusVehicle = useCallback(
     (vehicleId: string) => {
+      if (vehicleId === selectedVehicleId) {
+        clearSelectedVehicle()
+        return
+      }
+
       const vehicle = vehicleById.get(vehicleId)
 
       if (!vehicle) return
@@ -604,14 +757,33 @@ function PassengerMapContent({ snapshot }: { snapshot: PassengerMapSnapshot }) {
         setSelectedRouteId(vehicle.routeId)
       }
 
+      clearSelectedStop()
+      followedVehiclePositionRef.current = {
+        vehicleId: vehicle.id,
+        lat: vehicle.position.lat,
+        lng: vehicle.position.lng,
+      }
+      clearFollowResumeTimeout()
+      isVehicleFollowPausedRef.current = false
       setSelectedVehicleId(vehicle.id)
-      mapRef.current?.flyTo({
-        center: [vehicle.position.lng, vehicle.position.lat],
-        zoom: 15,
-        duration: 0.55,
+      runProgrammaticMapMove((map) => {
+        map.flyTo({
+          center: [vehicle.position.lng, vehicle.position.lat],
+          zoom: Math.max(map.getZoom(), 15),
+          duration: 0.55,
+        })
       })
     },
-    [routeById, setSelectedRouteId, vehicleById],
+    [
+      clearFollowResumeTimeout,
+      clearSelectedVehicle,
+      clearSelectedStop,
+      routeById,
+      runProgrammaticMapMove,
+      selectedVehicleId,
+      setSelectedRouteId,
+      vehicleById,
+    ],
   )
 
   const handleVehicleLayerClick = useEffectEvent((event: MapLayerMouseEvent) => {
@@ -620,6 +792,16 @@ function PassengerMapContent({ snapshot }: { snapshot: PassengerMapSnapshot }) {
 
     if (typeof vehicleId === 'string') {
       focusVehicle(vehicleId)
+    }
+  })
+
+  const handleStopLayerClick = useEffectEvent((event: MapLayerMouseEvent) => {
+    const feature = event.features?.[0] as MapGeoJSONFeature | undefined
+    const stopId = feature?.properties?.stopId
+
+    if (typeof stopId === 'string') {
+      clearSelectedVehicle()
+      setSelectedStopId(stopId)
     }
   })
 
@@ -632,27 +814,83 @@ function PassengerMapContent({ snapshot }: { snapshot: PassengerMapSnapshot }) {
     }
   })
 
+  const scheduleVehicleFollowResume = useEffectEvent(() => {
+    if (typeof window === 'undefined' || !selectedVehicle) {
+      return
+    }
+
+    clearFollowResumeTimeout()
+    followResumeTimeoutRef.current = window.setTimeout(() => {
+      if (!selectedVehicle) {
+        return
+      }
+
+      isVehicleFollowPausedRef.current = false
+      followedVehiclePositionRef.current = {
+        vehicleId: selectedVehicle.id,
+        lat: selectedVehicle.position.lat,
+        lng: selectedVehicle.position.lng,
+      }
+      runProgrammaticMapMove((map) => {
+        map.easeTo({
+          center: [selectedVehicle.position.lng, selectedVehicle.position.lat],
+          duration: 700,
+          essential: true,
+        })
+      })
+    }, PASSENGER_MAP_FOLLOW_RESUME_DELAY_MS)
+  })
+
+  const handleMapMoveEnd = useEffectEvent(() => {
+    const currentMap = mapRef.current
+    const wasProgrammaticMove = isProgrammaticMapMoveRef.current
+
+    if (currentMap) {
+      const center = currentMap.getCenter()
+      setMapCenter({ lat: center.lat, lng: center.lng })
+    }
+
+    isProgrammaticMapMoveRef.current = false
+
+    if (wasProgrammaticMove || !selectedVehicleId || !isVehicleFollowPausedRef.current) {
+      return
+    }
+
+    scheduleVehicleFollowResume()
+  })
+
+  const handleUserMapMoveStart = useEffectEvent(() => {
+    if (!selectedVehicleId || isProgrammaticMapMoveRef.current) {
+      return
+    }
+
+    isVehicleFollowPausedRef.current = true
+    clearFollowResumeTimeout()
+  })
+
   const handleTransportTypeChange = useCallback(
     (transportType: TransportType) => {
       startTransition(() => {
         setRouteCarouselTransportType(transportType)
         setHasTransportTypeFilter(true)
         clearSelectedRoute()
-        setSelectedVehicleId(null)
+        clearSelectedVehicle()
+        clearSelectedStop()
       })
     },
-    [clearSelectedRoute],
+    [clearSelectedRoute, clearSelectedStop, clearSelectedVehicle],
   )
 
   const handleResetView = useCallback(() => {
     startTransition(() => {
       clearSelectedRoute()
       setHasTransportTypeFilter(false)
-      setSelectedVehicleId(null)
+      clearSelectedVehicle()
+      clearSelectedStop()
       setRouteSearchTerm('')
       setShowOnlyRoutesWithVisibleVehicles(false)
     })
-  }, [clearSelectedRoute])
+  }, [clearSelectedRoute, clearSelectedStop, clearSelectedVehicle])
 
   const handleOpenRoutePicker = useCallback(() => {
     setRoutePickerOpen(true)
@@ -698,7 +936,8 @@ function PassengerMapContent({ snapshot }: { snapshot: PassengerMapSnapshot }) {
 
   const handleToggleRoute = useCallback(
     (routeId: string) => {
-      setSelectedVehicleId(null)
+      clearSelectedVehicle()
+      clearSelectedStop()
 
       if (routeId === selectedRouteKey) {
         clearSelectedRoute()
@@ -707,7 +946,13 @@ function PassengerMapContent({ snapshot }: { snapshot: PassengerMapSnapshot }) {
 
       focusRouteAndRevealMap(routeId)
     },
-    [clearSelectedRoute, focusRouteAndRevealMap, selectedRouteKey],
+    [
+      clearSelectedRoute,
+      clearSelectedStop,
+      clearSelectedVehicle,
+      focusRouteAndRevealMap,
+      selectedRouteKey,
+    ],
   )
 
   const handleRouteSelectFromPicker = useCallback(
@@ -777,6 +1022,10 @@ function PassengerMapContent({ snapshot }: { snapshot: PassengerMapSnapshot }) {
           setMapLoadStatus('ready')
           setMapLoadError(null)
           map?.setRenderWorldCopies(false)
+          if (map) {
+            const center = map.getCenter()
+            setMapCenter({ lat: center.lat, lng: center.lng })
+          }
         }
         handleError = () => {
           if (!map) {
@@ -811,6 +1060,9 @@ function PassengerMapContent({ snapshot }: { snapshot: PassengerMapSnapshot }) {
         )
         map.on('load', handleLoad)
         map.on('error', handleError)
+        map.on('dragstart', handleUserMapMoveStart)
+        map.on('zoomstart', handleUserMapMoveStart)
+        map.on('moveend', handleMapMoveEnd)
         window.addEventListener('resize', resizeMap)
       })
       .catch(() => {
@@ -832,6 +1084,11 @@ function PassengerMapContent({ snapshot }: { snapshot: PassengerMapSnapshot }) {
       }
       if (map && handleError) {
         map.off('error', handleError)
+      }
+      if (map) {
+        map.off('dragstart', handleUserMapMoveStart)
+        map.off('zoomstart', handleUserMapMoveStart)
+        map.off('moveend', handleMapMoveEnd)
       }
       map?.remove()
       mapRef.current = null
@@ -974,6 +1231,31 @@ function PassengerMapContent({ snapshot }: { snapshot: PassengerMapSnapshot }) {
       map.on('click', `${SELECTED_VEHICLE_SOURCE_ID}-circle`, handleVehicleLayerClick)
     }
 
+    if (!map.getSource(STOPS_SOURCE_ID)) {
+      map.addSource(STOPS_SOURCE_ID, {
+        type: 'geojson',
+        data: emptyFeatureCollection(),
+      })
+      map.addLayer({
+        id: STOPS_LAYER_ID,
+        type: 'circle',
+        source: STOPS_SOURCE_ID,
+        paint: {
+          'circle-radius': 6,
+          'circle-color': '#f8fafc',
+          'circle-stroke-color': '#0284c7',
+          'circle-stroke-width': 3,
+        },
+      })
+      map.on('mouseenter', STOPS_LAYER_ID, () => {
+        map.getCanvas().style.cursor = 'pointer'
+      })
+      map.on('mouseleave', STOPS_LAYER_ID, () => {
+        map.getCanvas().style.cursor = ''
+      })
+      map.on('click', STOPS_LAYER_ID, handleStopLayerClick)
+    }
+
     if (!map.getSource(USER_SOURCE_ID)) {
       map.addSource(USER_SOURCE_ID, {
         type: 'geojson',
@@ -1033,6 +1315,14 @@ function PassengerMapContent({ snapshot }: { snapshot: PassengerMapSnapshot }) {
   useEffect(() => {
     if (mapLoadStatus !== 'ready') return
 
+    ;(mapRef.current?.getSource(STOPS_SOURCE_ID) as GeoJSONSource | undefined)?.setData(
+      stopFeatureCollection,
+    )
+  }, [mapLoadStatus, stopFeatureCollection])
+
+  useEffect(() => {
+    if (mapLoadStatus !== 'ready') return
+
     ;(mapRef.current?.getSource(USER_SOURCE_ID) as GeoJSONSource | undefined)?.setData(
       userFeatureCollection,
     )
@@ -1049,27 +1339,85 @@ function PassengerMapContent({ snapshot }: { snapshot: PassengerMapSnapshot }) {
       return
     }
 
+    if (selectedStop) {
+      openStopPopup(selectedStop)
+      return
+    }
+
     popupRef.current?.remove()
     popupRef.current = null
-  }, [mapLoadStatus, openVehiclePopup, selectedVehicle])
+  }, [mapLoadStatus, openStopPopup, openVehiclePopup, selectedStop, selectedVehicle])
+
+  useEffect(() => {
+    const map = mapRef.current
+
+    if (
+      !map ||
+      mapLoadStatus !== 'ready' ||
+      !selectedVehicle ||
+      isVehicleFollowPausedRef.current
+    ) {
+      if (!selectedVehicle) {
+        followedVehiclePositionRef.current = null
+      }
+
+      return
+    }
+
+    const previousFollowedPosition = followedVehiclePositionRef.current
+    const hasPositionChanged =
+      previousFollowedPosition?.vehicleId !== selectedVehicle.id ||
+      previousFollowedPosition?.lat !== selectedVehicle.position.lat ||
+      previousFollowedPosition?.lng !== selectedVehicle.position.lng
+
+    if (!hasPositionChanged) {
+      return
+    }
+
+    followedVehiclePositionRef.current = {
+      vehicleId: selectedVehicle.id,
+      lat: selectedVehicle.position.lat,
+      lng: selectedVehicle.position.lng,
+    }
+
+    runProgrammaticMapMove((activeMap) => {
+      activeMap.easeTo({
+        center: [selectedVehicle.position.lng, selectedVehicle.position.lat],
+        duration: previousFollowedPosition ? 900 : 0,
+        essential: true,
+      })
+    })
+  }, [mapLoadStatus, runProgrammaticMapMove, selectedVehicle])
+
+  useEffect(() => {
+    return () => {
+      clearFollowResumeTimeout()
+    }
+  }, [clearFollowResumeTimeout])
 
   useEffect(() => {
     const map = mapRef.current
     if (!map || mapLoadStatus !== 'ready') return
+
+    if (selectedVehicle) {
+      return
+    }
 
     const viewKey = selectedRoute?.id ?? `transport:${activeTransportType}`
     const shouldFitView =
       !didFitInitialViewRef.current || lastFittedViewKeyRef.current !== viewKey
 
     if (shouldFitView && displayedRouteBounds) {
-      map.fitBounds(displayedRouteBounds, {
-        padding: {
-          top: 72,
-          bottom: selectedRoute || selectedVehicleSummary ? 112 : 32,
-          left: 24,
-          right: 24,
-        },
-        maxZoom: selectedRoute ? 14.75 : 13.6,
+      runProgrammaticMapMove((activeMap) => {
+        activeMap.fitBounds(displayedRouteBounds, {
+          padding: {
+            top: 72,
+            bottom: selectedRoute ? 58 : 32,
+            left: 24,
+            right: 24,
+          },
+          maxZoom: selectedRoute ? 14.75 : 13.6,
+        })
       })
       didFitInitialViewRef.current = true
       lastFittedViewKeyRef.current = viewKey
@@ -1077,10 +1425,12 @@ function PassengerMapContent({ snapshot }: { snapshot: PassengerMapSnapshot }) {
     }
 
     if (!didFitInitialViewRef.current && userPosition) {
-      map.flyTo({
-        center: [userPosition.lng, userPosition.lat],
-        zoom: 14,
-        duration: 0.55,
+      runProgrammaticMapMove((activeMap) => {
+        activeMap.flyTo({
+          center: [userPosition.lng, userPosition.lat],
+          zoom: 14,
+          duration: 0.55,
+        })
       })
       didFitInitialViewRef.current = true
       lastFittedViewKeyRef.current = viewKey
@@ -1090,7 +1440,8 @@ function PassengerMapContent({ snapshot }: { snapshot: PassengerMapSnapshot }) {
     displayedRouteBounds,
     mapLoadStatus,
     selectedRoute,
-    selectedVehicleSummary,
+    selectedVehicle,
+    runProgrammaticMapMove,
     userPosition,
   ])
 
@@ -1106,12 +1457,20 @@ function PassengerMapContent({ snapshot }: { snapshot: PassengerMapSnapshot }) {
       return
     }
 
-    map.flyTo({
-      center: [userPosition.lng, userPosition.lat],
-      zoom: 15,
-      duration: 0.55,
+    runProgrammaticMapMove((activeMap) => {
+      activeMap.flyTo({
+        center: [userPosition.lng, userPosition.lat],
+        zoom: 15,
+        duration: 0.55,
+      })
     })
-  }, [centerOnUserRequestCount, mapLoadStatus, requestPermission, userPosition])
+  }, [
+    centerOnUserRequestCount,
+    mapLoadStatus,
+    requestPermission,
+    runProgrammaticMapMove,
+    userPosition,
+  ])
 
   if (!hasHydratedSelection) {
     return (
@@ -1208,11 +1567,6 @@ function PassengerMapContent({ snapshot }: { snapshot: PassengerMapSnapshot }) {
 
               <PassengerMapSelectionSummary
                 selectedRoute={selectedRoute}
-                selectedRouteDistanceMeters={selectedRouteDistanceMeters}
-                selectedVehicle={selectedVehicleSummary}
-                hasGeneralViewAction={Boolean(selectedRoute || hasTransportTypeFilter)}
-                onFocusVehicle={focusVehicle}
-                onResetView={handleResetView}
               />
             </div>
           </article>
@@ -1231,6 +1585,8 @@ function PassengerMapContent({ snapshot }: { snapshot: PassengerMapSnapshot }) {
             vehicleStatsByRoute={vehicleStatsByRoute}
             routeSearchTerm={routeSearchTerm}
             showOnlyRoutesWithVisibleVehicles={showOnlyRoutesWithVisibleVehicles}
+            mapCenter={mapCenter}
+            userPosition={userPosition}
             canResetView={Boolean(selectedRoute || hasTransportTypeFilter)}
             onRequestPermission={handleRequestPermission}
             onFocusRecommended={handleFocusRecommended}

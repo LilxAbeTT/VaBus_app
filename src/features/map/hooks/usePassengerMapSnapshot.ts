@@ -9,16 +9,18 @@ export function usePassengerMapSnapshot(nowMs?: number) {
     api.passengerMap.getActiveVehicles,
     nowMs === undefined ? {} : { nowMs },
   )
+  const stops = useQuery(api.passengerMap.getStops, {})
 
   const snapshot = useMemo(
     () =>
-      routes !== undefined && activeVehicles !== undefined
+      routes !== undefined && activeVehicles !== undefined && stops !== undefined
         ? {
             routes,
             activeVehicles,
+            stops,
           }
         : undefined,
-    [activeVehicles, routes],
+    [activeVehicles, routes, stops],
   )
   const [lastSnapshot, setLastSnapshot] = useState<PassengerMapSnapshot | undefined>(undefined)
   const storeSnapshot = useEffectEvent((nextSnapshot: PassengerMapSnapshot) => {

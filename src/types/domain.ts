@@ -19,6 +19,12 @@ export type SupportThreadStatus = 'open' | 'closed'
 
 export type SupportMessageSenderRole = 'driver' | 'admin'
 
+export type StopStatus = 'official' | 'informal' | 'inactive'
+
+export type StopSource = 'admin' | 'user_validated'
+
+export type StopSuggestionReportedAsOfficial = 'yes' | 'no' | 'unknown'
+
 export interface Coordinates {
   lat: number
   lng: number
@@ -109,9 +115,24 @@ export interface PassengerMapVehicle {
   operationalStatus: ServiceOperationalStatus
 }
 
+export interface BusStop {
+  id: string
+  name?: string
+  position: Coordinates
+  status: StopStatus
+  routeIds: string[]
+  source: StopSource
+  note?: string
+  reportCount: number
+  createdAt: string
+  validatedAt?: string
+  lastReportedAt?: string
+}
+
 export interface PassengerMapSnapshot {
   routes: BusRoute[]
   activeVehicles: PassengerMapVehicle[]
+  stops: BusStop[]
 }
 
 export interface DriverPanelCurrentService {
@@ -258,6 +279,25 @@ export interface AdminOperationalAlert {
   description: string
 }
 
+export interface AdminStop extends BusStop {
+  routeNames: string[]
+  pendingSuggestionCount: number
+}
+
+export interface AdminStopSuggestionCluster {
+  id: string
+  suggestionIds: string[]
+  routeId?: string
+  routeName?: string
+  center: Coordinates
+  totalReports: number
+  officialYesCount: number
+  officialNoCount: number
+  unknownCount: number
+  latestReportedAt: string
+  notes: string[]
+}
+
 export interface AdminDashboardState {
   admin: AppUser
   overview: AdminOperationalOverview
@@ -267,6 +307,8 @@ export interface AdminDashboardState {
   vehicles: AdminManagedVehicle[]
   alerts: AdminOperationalAlert[]
   supportThreads: AdminSupportThread[]
+  stops: AdminStop[]
+  stopSuggestionClusters: AdminStopSuggestionCluster[]
   events: AdminSystemEvent[]
 }
 
@@ -278,6 +320,8 @@ export interface AdminManagementCatalogState {
   vehicles: AdminManagedVehicle[]
   alerts: AdminOperationalAlert[]
   supportThreads: AdminSupportThread[]
+  stops: AdminStop[]
+  stopSuggestionClusters: AdminStopSuggestionCluster[]
 }
 
 export interface AdminOperationalFeed {
@@ -287,12 +331,12 @@ export interface AdminOperationalFeed {
 
 export interface AdminSystemEvent {
   id: string
-  category: 'service' | 'driver' | 'vehicle' | 'route'
+  category: 'service' | 'driver' | 'vehicle' | 'route' | 'stop'
   title: string
   description: string
   actorName?: string
   actorRole?: 'driver' | 'admin'
-  targetType?: 'service' | 'driver' | 'vehicle' | 'route'
+  targetType?: 'service' | 'driver' | 'vehicle' | 'route' | 'stop'
   targetId?: string
   createdAt: string
 }

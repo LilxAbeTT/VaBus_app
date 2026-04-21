@@ -43,8 +43,17 @@ const lastUpdateFormatter = new Intl.DateTimeFormat('es-MX', {
   month: 'short',
 })
 
+const lastUpdateTimeFormatter = new Intl.DateTimeFormat('es-MX', {
+  hour: '2-digit',
+  minute: '2-digit',
+})
+
 export function formatLastUpdate(value: string) {
   return lastUpdateFormatter.format(new Date(value))
+}
+
+export function formatLastUpdateTime(value: string) {
+  return lastUpdateTimeFormatter.format(new Date(value))
 }
 
 export function formatRelativeLastUpdate(value: string, nowMs: number) {
