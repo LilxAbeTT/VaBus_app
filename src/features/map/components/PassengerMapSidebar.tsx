@@ -1,5 +1,5 @@
 import { memo, useMemo, useState } from 'react'
-import type { BusRoute, Coordinates, TransportType } from '../../../types/domain'
+import type { BusRoute, TransportType } from '../../../types/domain'
 import type { PassengerGeolocationPermissionState } from '../hooks/usePassengerGeolocation'
 import { PassengerMapSidebarAssistPanel } from './PassengerMapSidebarAssistPanel'
 import type {
@@ -61,6 +61,23 @@ function InfoIcon() {
   )
 }
 
+function StarIcon({ filled }: { filled: boolean }) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill={filled ? 'currentColor' : 'none'}
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="m12 3.8 2.5 5.07 5.6.81-4.05 3.94.96 5.57L12 16.53 6.99 19.2l.96-5.57L3.9 9.68l5.6-.81L12 3.8Z" />
+    </svg>
+  )
+}
+
 function BusIcon() {
   return (
     <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -86,8 +103,6 @@ export const PassengerMapSidebar = memo(function PassengerMapSidebar({
   vehicleStatsByRoute,
   routeSearchTerm,
   showOnlyRoutesWithVisibleVehicles,
-  mapCenter,
-  userPosition,
   canResetView,
   onRequestPermission,
   onFocusRecommended,
@@ -97,6 +112,8 @@ export const PassengerMapSidebar = memo(function PassengerMapSidebar({
   onTransportTypeChange,
   onResetView,
   onToggleRoute,
+  favoriteRouteIds,
+  onToggleFavoriteRoute,
   onShowRouteInfo,
 }: {
   routeGroups: PassengerRouteGroup[]
@@ -112,8 +129,6 @@ export const PassengerMapSidebar = memo(function PassengerMapSidebar({
   vehicleStatsByRoute: Map<string, { visible: number; stopped: number }>
   routeSearchTerm: string
   showOnlyRoutesWithVisibleVehicles: boolean
-  mapCenter: Coordinates | null
-  userPosition: Coordinates | null
   canResetView: boolean
   onRequestPermission: () => void
   onFocusRecommended: () => void
@@ -123,6 +138,8 @@ export const PassengerMapSidebar = memo(function PassengerMapSidebar({
   onTransportTypeChange: (transportType: TransportType) => void
   onResetView: () => void
   onToggleRoute: (routeId: string) => void
+  favoriteRouteIds: Set<string>
+  onToggleFavoriteRoute: (routeId: string) => void
   onShowRouteInfo: (routeId: string) => void
 }) {
   const recommendedRouteDetails = permissionState === 'granted' ? recommendedRoute : null
@@ -410,15 +427,38 @@ export const PassengerMapSidebar = memo(function PassengerMapSidebar({
                     {route.name}
                   </span>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => onShowRouteInfo(route.id)}
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
-                  aria-label={`Ver informacion de ${route.name}`}
-                  title="Informacion de ruta"
-                >
-                  <InfoIcon />
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onToggleFavoriteRoute(route.id)}
+                    className={`inline-flex h-10 w-10 items-center justify-center rounded-full border transition ${
+                      favoriteRouteIds.has(route.id)
+                        ? 'border-amber-200 bg-amber-50 text-amber-600 hover:border-amber-300'
+                        : 'border-slate-200 bg-slate-50 text-slate-500 hover:border-amber-200 hover:text-amber-600'
+                    }`}
+                    aria-label={
+                      favoriteRouteIds.has(route.id)
+                        ? `Quitar ${route.name} de tus rutas`
+                        : `Guardar ${route.name} en tus rutas`
+                    }
+                    title={
+                      favoriteRouteIds.has(route.id)
+                        ? 'Quitar de tus rutas'
+                        : 'Guardar en tus rutas'
+                    }
+                  >
+                    <StarIcon filled={favoriteRouteIds.has(route.id)} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onShowRouteInfo(route.id)}
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
+                    aria-label={`Ver informacion de ${route.name}`}
+                    title="Informacion de ruta"
+                  >
+                    <InfoIcon />
+                  </button>
+                </div>
               </div>
 
               {route.passengerInfo.frequency ||
@@ -508,9 +548,8 @@ export const PassengerMapSidebar = memo(function PassengerMapSidebar({
       <PassengerMapSidebarAssistPanel
         routeOptions={routeOptions}
         defaultReportRouteId={defaultReportRouteId}
-        mapCenter={mapCenter}
-        userPosition={userPosition}
       />
+
     </section>
   )
 })

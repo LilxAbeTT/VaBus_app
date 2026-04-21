@@ -1,5 +1,6 @@
 import { memo } from 'react'
 import { Link } from 'react-router'
+import type { BusRoute } from '../../../types/domain'
 
 function RouteListIcon() {
   return (
@@ -26,11 +27,15 @@ function RouteListIcon() {
 export const PassengerMapHeader = memo(function PassengerMapHeader({
   visibleVehiclesCount,
   activeRoutesCount,
+  personalRoutes,
   onOpenRoutes,
+  onOpenPersonalRoute,
 }: {
   visibleVehiclesCount: number
   activeRoutesCount: number
+  personalRoutes: BusRoute[]
   onOpenRoutes: () => void
+  onOpenPersonalRoute: (routeId: string) => void
 }) {
   return (
     <header className="panel px-3 py-3 sm:px-4">
@@ -77,6 +82,40 @@ export const PassengerMapHeader = memo(function PassengerMapHeader({
             {' '}
           </span>
         </div>
+
+        {personalRoutes.length > 0 ? (
+          <div className="rounded-[1rem] border border-slate-200 bg-slate-50/90 px-3 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                  Tus rutas
+                </p>
+                <p className="mt-1 text-xs text-slate-600">
+                  Acceso rapido a tus rutas mas usadas.
+                </p>
+              </div>
+            </div>
+
+            <div className="-mx-1 mt-3 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              <div className="flex gap-2">
+                {personalRoutes.map((route) => (
+                  <button
+                    key={route.id}
+                    type="button"
+                    onClick={() => onOpenPersonalRoute(route.id)}
+                    className="inline-flex shrink-0 items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-teal-300 hover:text-teal-700"
+                  >
+                    <span
+                      className="h-2.5 w-2.5 rounded-full"
+                      style={{ backgroundColor: route.color }}
+                    />
+                    <span className="max-w-[11rem] truncate">{route.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </header>
   )

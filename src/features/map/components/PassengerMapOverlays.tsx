@@ -283,6 +283,7 @@ export function PassengerRouteReportModal({
 export function PassengerStopSuggestionModal({
   isOpen,
   routes,
+  selectedRouteName,
   selectedRouteId,
   selectedLocationSource,
   mapCenter,
@@ -300,6 +301,7 @@ export function PassengerStopSuggestionModal({
 }: {
   isOpen: boolean
   routes: BusRoute[]
+  selectedRouteName: string | null
   selectedRouteId: string
   selectedLocationSource: 'map_center' | 'current_location'
   mapCenter: Coordinates | null
@@ -315,6 +317,8 @@ export function PassengerStopSuggestionModal({
   onDetailsChange: (value: string) => void
   onSubmit: () => void
 }) {
+  const [showOptionalDetails, setShowOptionalDetails] = useState(false)
+
   if (!isOpen) {
     return null
   }
@@ -324,6 +328,7 @@ export function PassengerStopSuggestionModal({
       ? userPosition
       : mapCenter
   const canUseCurrentLocation = userPosition !== null
+  const hasSelectedRouteName = Boolean(selectedRouteName)
 
   return (
     <ModalFrame
@@ -340,8 +345,8 @@ export function PassengerStopSuggestionModal({
               Sugerir parada
             </h2>
             <p className="mt-2 text-sm leading-6 text-slate-600">
-              Marca una parada para que administracion la revise y, si corresponde,
-              la publique como oficial.
+              Marca el punto y envia la sugerencia. Lo importante es la ubicacion;
+              el detalle extra es opcional.
             </p>
           </div>
           <button
@@ -355,48 +360,81 @@ export function PassengerStopSuggestionModal({
         </div>
 
         <div className="mt-4 overflow-y-auto overscroll-contain pr-1">
-          <label className="block">
-            <span className="mb-2 block text-sm font-semibold text-slate-800">Ruta</span>
-            <select
-              value={selectedRouteId}
-              onChange={(event) => onRouteChange(event.target.value)}
-              className="w-full rounded-[1rem] border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-teal-400"
-            >
-              {routes.map((route) => (
-                <option key={route.id} value={route.id}>
-                  {route.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="rounded-[1.1rem] border border-slate-200 bg-slate-50 px-4 py-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+              Ruta
+            </p>
+            {hasSelectedRouteName ? (
+              <>
+                <p className="mt-2 text-base font-semibold text-slate-900">
+                  {selectedRouteName}
+                </p>
+                <p className="mt-1 text-sm text-slate-600">
+                  La sugerencia se guardara en la ruta que estas viendo.
+                </p>
+              </>
+            ) : (
+              <div className="mt-3">
+                <select
+                  value={selectedRouteId}
+                  onChange={(event) => onRouteChange(event.target.value)}
+                  className="w-full rounded-[1rem] border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-teal-400"
+                >
+                  {routes.map((route) => (
+                    <option key={route.id} value={route.id}>
+                      {route.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
 
           <div className="mt-4">
             <span className="mb-2 block text-sm font-semibold text-slate-800">
-              Punto a reportar
+              Donde esta la parada?
             </span>
-            <div className="flex flex-wrap gap-2">
+            <div className="grid gap-2 sm:grid-cols-2">
               <button
                 type="button"
                 onClick={() => onLocationSourceChange('map_center')}
-                className={`inline-flex min-h-10 items-center justify-center rounded-full px-4 text-sm font-semibold transition ${
+                className={`rounded-[1.1rem] border px-4 py-3 text-left text-sm font-semibold transition ${
                   selectedLocationSource === 'map_center'
-                    ? 'bg-slate-900 text-white'
-                    : 'border border-slate-200 bg-white text-slate-700 hover:border-teal-300 hover:text-teal-700'
+                    ? 'border-slate-900 bg-slate-900 text-white'
+                    : 'border-slate-200 bg-white text-slate-700 hover:border-teal-300 hover:text-teal-700'
                 }`}
               >
-                Centro del mapa
+                <span className="block">Centro del mapa</span>
+                <span
+                  className={`mt-1 block text-xs font-medium ${
+                    selectedLocationSource === 'map_center'
+                      ? 'text-white/80'
+                      : 'text-slate-500'
+                  }`}
+                >
+                  Usa el punto que dejaste centrado.
+                </span>
               </button>
               <button
                 type="button"
                 onClick={() => onLocationSourceChange('current_location')}
                 disabled={!canUseCurrentLocation}
-                className={`inline-flex min-h-10 items-center justify-center rounded-full px-4 text-sm font-semibold transition ${
+                className={`rounded-[1.1rem] border px-4 py-3 text-left text-sm font-semibold transition ${
                   selectedLocationSource === 'current_location'
-                    ? 'bg-slate-900 text-white'
-                    : 'border border-slate-200 bg-white text-slate-700 hover:border-teal-300 hover:text-teal-700'
+                    ? 'border-slate-900 bg-slate-900 text-white'
+                    : 'border-slate-200 bg-white text-slate-700 hover:border-teal-300 hover:text-teal-700'
                 } disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400`}
               >
-                Mi ubicacion
+                <span className="block">Mi ubicacion</span>
+                <span
+                  className={`mt-1 block text-xs font-medium ${
+                    selectedLocationSource === 'current_location'
+                      ? 'text-white/80'
+                      : 'text-slate-500'
+                  }`}
+                >
+                  Ideal si ya estas parado en la parada.
+                </span>
               </button>
             </div>
             <div className="mt-3 rounded-[1rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
@@ -405,7 +443,7 @@ export function PassengerStopSuggestionModal({
                   <p className="font-semibold text-slate-800">
                     {selectedLocationSource === 'current_location'
                       ? 'Se enviara tu ubicacion actual.'
-                      : 'Se enviara el centro actual del mapa.'}
+                      : 'Se enviara el punto que tienes centrado en el mapa.'}
                   </p>
                   <p className="mt-1">
                     Lat {selectedPosition.lat.toFixed(5)} · Lng {selectedPosition.lng.toFixed(5)}
@@ -413,47 +451,67 @@ export function PassengerStopSuggestionModal({
                 </>
               ) : (
                 <p>
-                  Centra el mapa sobre la parada o activa tu ubicacion para continuar.
+                  Centra el mapa sobre la parada o usa tu ubicacion para continuar.
                 </p>
               )}
             </div>
           </div>
 
           <div className="mt-4">
-            <span className="mb-2 block text-sm font-semibold text-slate-800">
-              Esta parada parece oficial?
-            </span>
-            <div className="flex flex-wrap gap-2">
-              {PASSENGER_STOP_SUGGESTION_OPTIONS.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => onReportedAsOfficialChange(option.value)}
-                  className={`inline-flex min-h-10 items-center justify-center rounded-full px-4 text-sm font-semibold transition ${
-                    reportedAsOfficial === option.value
-                      ? 'bg-slate-900 text-white'
-                      : 'border border-slate-200 bg-white text-slate-700 hover:border-teal-300 hover:text-teal-700'
-                  }`}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          </div>
+            <button
+              type="button"
+              onClick={() => setShowOptionalDetails((current) => !current)}
+              className="inline-flex min-h-10 items-center justify-center rounded-full border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:border-teal-300 hover:text-teal-700"
+            >
+              {showOptionalDetails ? 'Ocultar detalle opcional' : 'Agregar detalle opcional'}
+            </button>
 
-          <label className="mt-4 block">
-            <span className="mb-2 block text-sm font-semibold text-slate-800">
-              Referencia opcional
-            </span>
-            <textarea
-              value={details}
-              onChange={(event) => onDetailsChange(event.target.value.slice(0, 180))}
-              rows={3}
-              placeholder="Ejemplo: esta junto a una farmacia o tiene letrero azul."
-              className="w-full resize-none rounded-[1rem] border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-teal-400"
-            />
-            <span className="mt-2 block text-xs text-slate-500">{details.length}/180</span>
-          </label>
+            <p className="mt-2 text-xs leading-5 text-slate-500">
+              Puedes enviarla sin llenar nada mas. Esto solo ayuda a validar mejor la parada.
+            </p>
+
+            {showOptionalDetails ? (
+              <div className="mt-3 space-y-4 rounded-[1.1rem] border border-slate-200 bg-white px-4 py-4">
+                <div>
+                  <span className="mb-2 block text-sm font-semibold text-slate-800">
+                    Esta parada parece oficial?
+                  </span>
+                  <div className="flex flex-wrap gap-2">
+                    {PASSENGER_STOP_SUGGESTION_OPTIONS.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => onReportedAsOfficialChange(option.value)}
+                        className={`inline-flex min-h-10 items-center justify-center rounded-full px-4 text-sm font-semibold transition ${
+                          reportedAsOfficial === option.value
+                            ? 'bg-slate-900 text-white'
+                            : 'border border-slate-200 bg-white text-slate-700 hover:border-teal-300 hover:text-teal-700'
+                        }`}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <label className="block">
+                  <span className="mb-2 block text-sm font-semibold text-slate-800">
+                    Referencia opcional
+                  </span>
+                  <textarea
+                    value={details}
+                    onChange={(event) => onDetailsChange(event.target.value.slice(0, 180))}
+                    rows={3}
+                    placeholder="Ejemplo: tiene letrero azul o esta junto a una farmacia."
+                    className="w-full resize-none rounded-[1rem] border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-teal-400"
+                  />
+                  <span className="mt-2 block text-xs text-slate-500">
+                    {details.length}/180
+                  </span>
+                </label>
+              </div>
+            ) : null}
+          </div>
 
           {submitError ? (
             <div className="mt-4 rounded-[1rem] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
